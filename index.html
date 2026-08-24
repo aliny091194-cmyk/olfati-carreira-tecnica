@@ -1,0 +1,1109 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OLFATI · Acompanhamento de Carreira Técnica</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+:root{
+  color-scheme: light;
+  --surface-1:      #fcfcfb;
+  --surface-2:      #ffffff;
+  --page:           #f4f4f1;
+  --text-primary:   #0b0b0b;
+  --text-secondary: #52514e;
+  --muted:          #898781;
+  --grid:           #e1e0d9;
+  --baseline:       #c3c2b7;
+  --border:         rgba(11,11,11,0.10);
+  --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a; --series-4: #eda100;
+  --series-5: #e87ba4; --series-6: #008300; --series-7: #4a3aa7; --series-8: #e34948;
+  --good: #0ca30c; --warning: #b8790f; --serious: #c85a34; --critical: #d03b3b;
+  --radius: 10px;
+}
+*{box-sizing:border-box;}
+body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--page);color:var(--text-primary);}
+button{font-family:inherit;cursor:pointer;}
+input,select{font-family:inherit;}
+.hidden{display:none !important;}
+
+/* ---------- Login ---------- */
+#loginScreen{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;}
+.login-card{background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius);padding:32px;max-width:400px;width:100%;box-shadow:0 4px 24px rgba(0,0,0,0.06);}
+.login-card h1{font-size:20px;margin:0 0 4px;}
+.login-card .sub{color:var(--text-secondary);font-size:13px;margin:0 0 24px;}
+.field{margin-bottom:14px;}
+.field label{display:block;font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:5px;}
+.field select,.field input{width:100%;padding:9px 10px;border:1px solid var(--baseline);border-radius:7px;font-size:14px;background:var(--surface-1);color:var(--text-primary);}
+.btn{padding:9px 16px;border-radius:7px;border:1px solid var(--baseline);background:var(--surface-1);font-size:13px;font-weight:600;color:var(--text-primary);}
+.btn:hover{background:var(--grid);}
+.btn-primary{background:var(--series-1);border-color:var(--series-1);color:#fff;width:100%;padding:11px;font-size:14px;}
+.btn-primary:hover{background:#2568bd;}
+.login-note{margin-top:16px;font-size:11.5px;color:var(--muted);line-height:1.5;background:var(--page);padding:10px 12px;border-radius:7px;}
+
+/* ---------- App shell ---------- */
+#app{min-height:100vh;}
+header.topbar{background:var(--surface-2);border-bottom:1px solid var(--border);padding:12px 18px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;position:sticky;top:0;z-index:20;}
+.brand{font-weight:700;font-size:15px;letter-spacing:.2px;flex:none;}
+.brand span{color:var(--series-1);}
+.tabs{display:flex;gap:4px;flex:1 1 auto;flex-wrap:wrap;min-width:0;}
+.tab-btn{border:none;background:transparent;padding:8px 12px;border-radius:7px;font-size:13px;color:var(--text-secondary);font-weight:600;white-space:nowrap;}
+.tab-btn.active{background:var(--page);color:var(--text-primary);}
+.tab-btn:hover{color:var(--text-primary);}
+.who{display:flex;align-items:center;gap:10px;font-size:13px;flex:none;margin-left:auto;}
+.who .name{font-weight:600;}
+@media (max-width:640px){
+  header.topbar{padding:10px 14px;}
+  .tabs{order:3;flex-basis:100%;border-top:1px solid var(--grid);padding-top:8px;margin-top:2px;}
+  .who{margin-left:0;}
+}
+.badge{padding:2px 9px;border-radius:20px;font-size:11px;font-weight:700;color:#fff;}
+.badge.junior{background:var(--series-4);color:#1a1200;}
+.badge.pleno{background:var(--series-1);}
+.badge.senior{background:var(--series-7);}
+main{max-width:1180px;margin:0 auto;padding:22px;}
+.panel-title{display:none;}
+.tabpanel{display:none;}
+.tabpanel.active{display:block;}
+
+/* ---------- generic cards / grid ---------- */
+.grid{display:grid;gap:14px;}
+.grid-4{grid-template-columns:repeat(4,1fr);}
+.grid-2{grid-template-columns:1fr 1fr;}
+@media (max-width:900px){.grid-4{grid-template-columns:repeat(2,1fr);}.grid-2{grid-template-columns:1fr;}}
+.card{background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px;}
+.card h3{margin:0 0 12px;font-size:13px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.4px;}
+.stat{font-size:26px;font-weight:700;font-variant-numeric:tabular-nums;}
+.stat-sub{font-size:12px;color:var(--muted);margin-top:2px;}
+.section{margin-bottom:22px;}
+.section-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;}
+.section-head h2{font-size:16px;margin:0;}
+
+/* progress bars */
+.progress-wrap{background:var(--grid);border-radius:20px;height:10px;overflow:hidden;margin:6px 0;}
+.progress-fill{height:100%;border-radius:20px;background:var(--series-1);transition:width .3s;}
+.progress-fill.good{background:var(--good);}
+.progress-fill.warn{background:var(--warning);}
+.progress-labels{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);}
+
+/* tables */
+table{width:100%;border-collapse:collapse;font-size:13px;}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--grid);white-space:nowrap;}
+th{color:var(--text-secondary);font-size:11.5px;text-transform:uppercase;letter-spacing:.3px;cursor:pointer;user-select:none;}
+th:hover{color:var(--text-primary);}
+tbody tr:hover{background:var(--page);}
+.table-wrap{overflow-x:auto;}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;}
+
+.pill{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:20px;font-size:11.5px;font-weight:700;}
+.pill.good{background:rgba(12,163,12,0.12);color:var(--good);}
+.pill.warn{background:rgba(184,121,15,0.14);color:var(--warning);}
+.pill.bad{background:rgba(208,59,59,0.12);color:var(--critical);}
+.dot{width:7px;height:7px;border-radius:50%;display:inline-block;}
+.dot.good{background:var(--good);}.dot.warn{background:var(--warning);}.dot.bad{background:var(--critical);}
+
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+.toolbar select,.toolbar input{padding:7px 9px;border:1px solid var(--baseline);border-radius:7px;font-size:12.5px;background:var(--surface-1);}
+
+.checklist-item{display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid var(--grid);}
+.checklist-item:last-child{border-bottom:none;}
+.check-icon{width:20px;height:20px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;font-size:12px;color:#fff;font-weight:700;margin-top:1px;}
+.check-icon.ok{background:var(--good);}
+.check-icon.pending{background:var(--baseline);color:var(--text-secondary);}
+.checklist-item .ci-title{font-size:13px;font-weight:600;}
+.checklist-item .ci-sub{font-size:12px;color:var(--muted);margin-top:2px;}
+
+.form-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;align-items:end;}
+@media (max-width:900px){.form-grid{grid-template-columns:repeat(2,1fr);}}
+.form-grid .field label{font-size:11px;}
+
+.empty-state{text-align:center;padding:40px 20px;color:var(--muted);font-size:13px;}
+
+.chip{display:inline-block;background:var(--page);border:1px solid var(--border);padding:2px 8px;border-radius:6px;font-size:11px;color:var(--text-secondary);margin-right:4px;}
+.note-box{background:var(--page);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:12px;color:var(--text-secondary);line-height:1.5;}
+.danger-text{color:var(--critical);}
+.link-btn{background:none;border:none;color:var(--series-1);font-weight:600;font-size:12.5px;padding:0;}
+hr.sep{border:none;border-top:1px solid var(--grid);margin:16px 0;}
+.small{font-size:11.5px;color:var(--muted);}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--page);padding:1px 5px;border-radius:4px;font-size:12px;}
+.mapping-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:center;padding:6px 0;}
+.preview-table{max-height:220px;overflow:auto;border:1px solid var(--grid);border-radius:8px;}
+canvas{max-width:100%;}
+.close-x{background:none;border:none;font-size:16px;color:var(--muted);}
+</style>
+</head>
+<body>
+
+<!-- ================= LOGIN ================= -->
+<div id="loginScreen">
+  <div class="login-card">
+    <h1>OLFATI <span>·</span> Acompanhamento Técnico</h1>
+    <p class="sub">Plano de carreira — Técnicos em Manutenção</p>
+    <div class="field">
+      <label>Perfil</label>
+      <select id="loginUser"></select>
+    </div>
+    <div class="field">
+      <label>Senha</label>
+      <input type="password" id="loginPass" placeholder="Digite a senha">
+    </div>
+    <button class="btn btn-primary" onclick="doLogin()">Entrar</button>
+    <div id="loginError" class="small danger-text" style="margin-top:8px;"></div>
+    <div class="login-note">
+      Demonstração local: usuário <b>admin</b> senha <b>admin123</b>. Técnicos usam <b>tecnico1</b>…<b>tecnico8</b> com a senha temporária exibida em <b>Contas</b> (login como admin primeiro).
+      Os dados desta sessão ficam apenas na memória do navegador — nada é salvo automaticamente. Use <b>Exportar CSV</b> com frequência para não perder lançamentos.
+    </div>
+  </div>
+</div>
+
+<!-- ================= APP ================= -->
+<div id="app" class="hidden">
+  <header class="topbar">
+    <div class="brand">OLFATI <span>·</span> Carreira</div>
+    <nav class="tabs" id="tabsNav"></nav>
+    <div class="who">
+      <span class="badge" id="whoBadge"></span>
+      <span class="name" id="whoName"></span>
+      <button class="btn" onclick="logout()">Sair</button>
+    </div>
+  </header>
+  <main id="mainArea"></main>
+</div>
+
+<script>
+/* =====================================================================
+   ESTADO GLOBAL (em memória — sem localStorage)
+===================================================================== */
+const CATEGORICAL = ['#2a78d6','#eb6834','#1baf7a','#eda100','#e87ba4','#008300','#4a3aa7','#e34948'];
+
+function defaultNiveis(){
+  return {
+    junior: {key:'junior', nome:'Técnico Júnior', ordem:1, salarioBase:2050, valorEquip:0.80,
+      meta:600, bonusMeta:100, supermeta:650, bonusSupermeta:200, cicloMeses:3, proximo:'pleno',
+      criterios:{minMetaVezes:1, minSupermetaVezes:1, maxPenalidadePerc:7}},
+    pleno: {key:'pleno', nome:'Técnico Pleno', ordem:2, salarioBase:2332, valorEquip:0.90,
+      meta:750, bonusMeta:150, supermeta:800, bonusSupermeta:250, cicloMeses:6, proximo:'senior',
+      criterios:{minMetaVezes:2, minSupermetaVezes:3, maxPenalidadePerc:5}},
+    senior: {key:'senior', nome:'Técnico Sênior', ordem:3, salarioBase:2650, valorEquip:1.00,
+      meta:900, bonusMeta:200, supermeta:950, bonusSupermeta:300, cicloMeses:null, proximo:null,
+      criterios:null}
+  };
+}
+
+const TIPOS_MODERADO = ["Não abrir e encerrar jornada","Não realizar a conferência de caixa","Desvio de rota não justificado",
+  "Falta de identificação do equipamento","Limpeza inadequada do equipamento","Uso indevido de recursos e equipamentos corporativos",
+  "Não manter a higiene da frota","Deixar de finalizar atendimentos no sistema","Deixar de entregar folders de apresentação",
+  "Deixar de cumprir com todas as etapas de relatórios do sistema"];
+const TIPOS_GRAVE = ["Não atender cliente em vermelho","Não atender cliente de reclamação","Não atender clientes de instalação",
+  "Não realizar troca de pilha","Falta injustificada ao trabalho","Recebimento de advertência formal","Desvio de qualidade no atendimento",
+  "Não prestar contas em caso de adiantamento financeiro","Desvios de conduta grave","Perder ferramentas de serviço",
+  "Não retornar à empresa ao final da rota em horário de expediente","Receber advertência verbal"];
+
+function genSenha(){
+  const chars='ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+  let s=''; for(let i=0;i<8;i++) s+=chars[Math.floor(Math.random()*chars.length)];
+  return s;
+}
+function todayISO(){ return new Date().toISOString().slice(0,10); }
+
+function defaultUsuarios(){
+  const arr=[{id:'admin', tipo:'admin', nome:'Administrador', login:'admin', senha:'admin123', ativo:true}];
+  for(let i=1;i<=8;i++){
+    arr.push({id:'tec'+i, tipo:'tecnico', nome:'Técnico '+i, login:'tecnico'+i, senha:genSenha(),
+      nivel:'junior', ativo:true, dataAdmissao: todayISO(), cicloInicio: todayISO()});
+  }
+  return arr;
+}
+
+const state = {
+  niveis: defaultNiveis(),
+  penalidades: { moderada:15, grave:30, modoBonus:'substituir' }, // substituir | somar
+  usuarios: defaultUsuarios(),
+  atendimentos: [], // {id, tecnicoId, data(ISO), equipamento, origem}
+  infracoes: [],    // {id, tecnicoId, data, tipo, categoria, valor, gerouAdvertencia}
+  session: null,    // usuario logado
+  mesRef: todayISO().slice(0,7),
+  sortPainel: {col:'equipamentos', dir:'desc'},
+  filtroPainel: {nivel:'', tecnico:''},
+  activeTab: null,
+  pendingImport: null
+};
+
+/* =====================================================================
+   HELPERS DE CÁLCULO
+===================================================================== */
+function tecnicos(){ return state.usuarios.filter(u=>u.tipo==='tecnico'); }
+function getUsuario(id){ return state.usuarios.find(u=>u.id===id); }
+function nivelDe(u){ return state.niveis[u.nivel]; }
+
+function monthKey(iso){ return iso.slice(0,7); }
+function fmtMoney(v){ return 'R$ ' + (v||0).toLocaleString('pt-BR',{minimumFractionDigits:2, maximumFractionDigits:2}); }
+function fmtMonthLabel(mk){
+  const [y,m]=mk.split('-'); const meses=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  return meses[parseInt(m,10)-1]+'/'+y;
+}
+function daysInMonth(mk){ const [y,m]=mk.split('-').map(Number); return new Date(y,m,0).getDate(); }
+
+function atendimentosDoMes(tecnicoId, mk){
+  return state.atendimentos.filter(a=>a.tecnicoId===tecnicoId && monthKey(a.data)===mk);
+}
+function qtdAtendimentosMes(tecnicoId, mk){ return atendimentosDoMes(tecnicoId, mk).length; }
+
+function infracoesDoMes(tecnicoId, mk){
+  return state.infracoes.filter(i=>i.tecnicoId===tecnicoId && monthKey(i.data)===mk);
+}
+
+function produtividadeMes(tecnicoId, mk){
+  const u=getUsuario(tecnicoId), nv=nivelDe(u);
+  return qtdAtendimentosMes(tecnicoId, mk) * nv.valorEquip;
+}
+
+function bonusMes(tecnicoId, mk){
+  const u=getUsuario(tecnicoId), nv=nivelDe(u);
+  const qtd = qtdAtendimentosMes(tecnicoId, mk);
+  const bateuMeta = qtd >= nv.meta, bateuSuper = qtd >= nv.supermeta;
+  let bonus=0, status='abaixo';
+  if(bateuSuper){
+    status='supermeta';
+    bonus = state.penalidades.modoBonus==='somar' ? (nv.bonusMeta+nv.bonusSupermeta) : nv.bonusSupermeta;
+  } else if(bateuMeta){
+    status='meta'; bonus = nv.bonusMeta;
+  }
+  return {bonus, status, bateuMeta, bateuSuper, qtd};
+}
+
+function penalidadesValorMes(tecnicoId, mk){
+  return infracoesDoMes(tecnicoId, mk).reduce((s,i)=>s+i.valor,0);
+}
+function percentualPenalidadesMes(tecnicoId, mk){
+  const qtdAt = qtdAtendimentosMes(tecnicoId, mk);
+  const qtdInf = infracoesDoMes(tecnicoId, mk).length;
+  if(qtdAt===0) return 0;
+  return (qtdInf/qtdAt)*100;
+}
+
+function remuneracaoEstimadaMes(tecnicoId, mk){
+  const u=getUsuario(tecnicoId), nv=nivelDe(u);
+  const prod = produtividadeMes(tecnicoId, mk);
+  const {bonus} = bonusMes(tecnicoId, mk);
+  const pen = penalidadesValorMes(tecnicoId, mk);
+  return nv.salarioBase + prod + bonus - pen;
+}
+
+/* --- ciclo de avaliação / promoção --- */
+function addMonths(iso, n){
+  const d=new Date(iso+'T00:00:00'); d.setMonth(d.getMonth()+n); return d.toISOString().slice(0,10);
+}
+function mesesEntre(iso1, mk){ // conta meses do cicloInicio até o mk (inclusive) como lista de monthKeys
+  const start = iso1.slice(0,7);
+  const out=[]; let [y,m]=start.split('-').map(Number);
+  const [ey,em]=mk.split('-').map(Number);
+  while(y<ey || (y===ey && m<=em)){
+    out.push(y+'-'+String(m).padStart(2,'0'));
+    m++; if(m>12){m=1;y++;}
+  }
+  return out;
+}
+function statusPromocao(tecnicoId, mkAtual){
+  const u=getUsuario(tecnicoId), nv=nivelDe(u);
+  if(!nv.criterios) return null; // sênior, sem próximo nível
+  const cicloFim = addMonths(u.cicloInicio, nv.cicloMeses);
+  const meses = mesesEntre(u.cicloInicio, mkAtual).filter(mk=>mk <= monthKey(cicloFim) || mk===monthKey(cicloFim));
+  let vezesMeta=0, vezesSuper=0, totalAt=0, totalInf=0, teveAdvertencia=false;
+  meses.forEach(mk=>{
+    const b=bonusMes(tecnicoId, mk);
+    if(b.bateuMeta) vezesMeta++;
+    if(b.bateuSuper) vezesSuper++;
+    totalAt += qtdAtendimentosMes(tecnicoId, mk);
+    totalInf += infracoesDoMes(tecnicoId, mk).length;
+    infracoesDoMes(tecnicoId, mk).forEach(i=>{ if(i.gerouAdvertencia) teveAdvertencia=true; });
+  });
+  const percPenal = totalAt>0 ? (totalInf/totalAt)*100 : 0;
+  const crit = nv.criterios;
+  const itens = [
+    {label:`Ficar ACIMA da meta pelo menos ${crit.minMetaVezes}x no ciclo`, ok: vezesMeta>=crit.minMetaVezes, atual:vezesMeta, alvo:crit.minMetaVezes},
+    {label:`Atingir a supermeta pelo menos ${crit.minSupermetaVezes}x no ciclo`, ok: vezesSuper>=crit.minSupermetaVezes, atual:vezesSuper, alvo:crit.minSupermetaVezes},
+    {label:`Não ultrapassar ${crit.maxPenalidadePerc}% de penalidades sobre atendimentos`, ok: percPenal<=crit.maxPenalidadePerc, atual:percPenal.toFixed(1)+'%', alvo:'≤ '+crit.maxPenalidadePerc+'%'},
+    {label:'Nenhuma advertência formal no período', ok: !teveAdvertencia, atual: teveAdvertencia?'Houve advertência':'Sem advertência', alvo:'Sem advertência'}
+  ];
+  const elegivel = itens.every(i=>i.ok);
+  return {itens, elegivel, cicloFim, proximo: state.niveis[nv.proximo]};
+}
+
+/* =====================================================================
+   AUTENTICAÇÃO
+===================================================================== */
+function populateLoginSelect(){
+  const sel=document.getElementById('loginUser'); sel.innerHTML='';
+  state.usuarios.filter(u=>u.ativo).forEach(u=>{
+    const opt=document.createElement('option'); opt.value=u.id;
+    opt.textContent = u.tipo==='admin' ? 'Administrador' : u.nome+' ('+u.login+')';
+    sel.appendChild(opt);
+  });
+}
+function doLogin(){
+  const id=document.getElementById('loginUser').value;
+  const pass=document.getElementById('loginPass').value;
+  const u=getUsuario(id);
+  const err=document.getElementById('loginError');
+  if(!u || u.senha!==pass){ err.textContent='Senha incorreta.'; return; }
+  err.textContent='';
+  state.session=u;
+  document.getElementById('loginScreen').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+  buildTabs();
+  renderAll();
+}
+function logout(){
+  state.session=null;
+  document.getElementById('loginPass').value='';
+  document.getElementById('app').classList.add('hidden');
+  document.getElementById('loginScreen').classList.remove('hidden');
+  populateLoginSelect();
+}
+
+/* =====================================================================
+   TABS / NAVEGAÇÃO
+===================================================================== */
+function tabsForSession(){
+  if(state.session.tipo==='admin'){
+    return [
+      {id:'admin-dash', label:'Visão Geral'},
+      {id:'admin-import', label:'Importar Auvo'},
+      {id:'admin-infra', label:'Infrações'},
+      {id:'admin-bonus', label:'Bônus e Metas'},
+      {id:'admin-config', label:'Configurações'},
+      {id:'admin-contas', label:'Acessos dos Técnicos'}
+    ];
+  }
+  return [
+    {id:'tec-dash', label:'Meu Painel'},
+    {id:'tec-bonus', label:'Bônus e Metas'}
+  ];
+}
+function buildTabs(){
+  const nav=document.getElementById('tabsNav'); nav.innerHTML='';
+  const tabs=tabsForSession();
+  state.activeTab = tabs[0].id;
+  tabs.forEach(t=>{
+    const btn=document.createElement('button');
+    btn.className='tab-btn'+(t.id===state.activeTab?' active':'');
+    btn.textContent=t.label; btn.onclick=()=>{ state.activeTab=t.id; renderAll(); };
+    btn.dataset.tab=t.id;
+    nav.appendChild(btn);
+  });
+  document.getElementById('whoName').textContent = state.session.nome;
+  if(state.session.tipo==='admin'){
+    document.getElementById('whoBadge').textContent='Admin';
+    document.getElementById('whoBadge').className='badge pleno';
+  } else {
+    const nv=nivelDe(state.session);
+    document.getElementById('whoBadge').textContent=nv.nome.replace('Técnico ','');
+    document.getElementById('whoBadge').className='badge '+nv.key;
+  }
+}
+function setActiveTabButton(){
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active', b.dataset.tab===state.activeTab));
+}
+
+/* =====================================================================
+   RENDER — roteador
+===================================================================== */
+let charts={};
+function destroyCharts(){ Object.values(charts).forEach(c=>{ try{c.destroy();}catch(e){} }); charts={}; }
+function safeChart(key, canvasId, config){
+  const canvas=document.getElementById(canvasId);
+  if(!canvas) return;
+  if(typeof Chart==='undefined'){
+    canvas.outerHTML = '<p class="small danger-text">Gráfico indisponível no momento (biblioteca não carregou — verifique a conexão com a internet).</p>';
+    return;
+  }
+  try{ charts[key] = new Chart(canvas, config); }
+  catch(err){ canvas.outerHTML = '<p class="small danger-text">Não foi possível desenhar o gráfico: '+err.message+'</p>'; }
+}
+
+function renderAll(){
+  if(!state.session) return;
+  destroyCharts();
+  setActiveTabButton();
+  const main=document.getElementById('mainArea');
+  const fn = {
+    'admin-dash': renderAdminDash,
+    'admin-import': renderAdminImport,
+    'admin-infra': renderAdminInfra,
+    'admin-bonus': renderBonusMetas,
+    'admin-config': renderAdminConfig,
+    'admin-contas': renderAdminContas,
+    'tec-dash': renderTecDash,
+    'tec-bonus': renderBonusMetas
+  }[state.activeTab];
+  main.innerHTML='';
+  if(fn) fn(main);
+}
+
+function mesSelectorHTML(){
+  const meses=new Set([state.mesRef]);
+  state.atendimentos.forEach(a=>meses.add(monthKey(a.data)));
+  const arr=[...meses].sort().reverse();
+  return `<select id="mesRefSelect" onchange="state.mesRef=this.value; renderAll();">
+    ${arr.map(mk=>`<option value="${mk}" ${mk===state.mesRef?'selected':''}>${fmtMonthLabel(mk)}</option>`).join('')}
+  </select>`;
+}
+
+/* =====================================================================
+   PAINEL ADMIN — VISÃO GERAL
+===================================================================== */
+function renderAdminDash(main){
+  const mk=state.mesRef;
+  const tecs=tecnicos().filter(u=>u.ativo);
+  const totalAt = tecs.reduce((s,u)=>s+qtdAtendimentosMes(u.id,mk),0);
+  const totalRem = tecs.reduce((s,u)=>s+remuneracaoEstimadaMes(u.id,mk),0);
+  const totalPen = tecs.reduce((s,u)=>s+penalidadesValorMes(u.id,mk),0);
+  const elegiveis = tecs.filter(u=>{ const sp=statusPromocao(u.id,mk); return sp && sp.elegivel; }).length;
+
+  main.innerHTML = `
+  <div class="section-head">
+    <h2>Visão geral da equipe</h2>
+    <div class="toolbar">${mesSelectorHTML()}</div>
+  </div>
+  <div class="grid grid-4 section">
+    <div class="card"><h3>Atendimentos no mês</h3><div class="stat">${totalAt}</div><div class="stat-sub">${tecs.length} técnicos ativos</div></div>
+    <div class="card"><h3>Remuneração estimada</h3><div class="stat">${fmtMoney(totalRem)}</div><div class="stat-sub">total da equipe</div></div>
+    <div class="card"><h3>Penalidades no mês</h3><div class="stat">${fmtMoney(totalPen)}</div><div class="stat-sub">${tecs.reduce((s,u)=>s+infracoesDoMes(u.id,mk).length,0)} infrações lançadas</div></div>
+    <div class="card"><h3>Elegíveis à promoção</h3><div class="stat">${elegiveis}</div><div class="stat-sub">de ${tecs.length} técnicos</div></div>
+  </div>
+
+  <div class="grid grid-2 section">
+    <div class="card">
+      <h3>Ranking de atendimentos por técnico</h3>
+      <canvas id="chartRanking" height="220"></canvas>
+    </div>
+    <div class="card">
+      <h3>Remuneração comparativa por nível</h3>
+      <canvas id="chartRemNivel" height="220"></canvas>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-head">
+      <h2>Painel em tempo real — Produtividade + Bônus + Infrações</h2>
+      <div class="toolbar">
+        <select id="filtroNivel" onchange="state.filtroPainel.nivel=this.value; renderAll();">
+          <option value="">Todos os níveis</option>
+          ${Object.values(state.niveis).map(n=>`<option value="${n.key}" ${state.filtroPainel.nivel===n.key?'selected':''}>${n.nome}</option>`).join('')}
+        </select>
+        <input id="filtroTecnico" placeholder="Filtrar técnico..." value="${state.filtroPainel.tecnico}" oninput="state.filtroPainel.tecnico=this.value; renderPainelTempoReal();">
+        <button class="btn" onclick="exportarPainelCSV()">Exportar CSV</button>
+      </div>
+    </div>
+    <div class="card table-wrap"><table id="painelTable"></table></div>
+  </div>
+
+  <div class="section">
+    <div class="section-head"><h2>Resumo por técnico</h2></div>
+    <div class="grid grid-4" id="cardsResumo"></div>
+  </div>
+  `;
+
+  renderPainelTempoReal();
+  renderCardsResumo();
+
+  // charts
+  const labelsRank = tecs.map(u=>u.nome);
+  const dataRank = tecs.map(u=>qtdAtendimentosMes(u.id,mk));
+  safeChart('ranking', 'chartRanking', {
+    type:'bar',
+    data:{labels:labelsRank, datasets:[{label:'Equipamentos atendidos', data:dataRank, backgroundColor:CATEGORICAL[0], borderRadius:4, maxBarThickness:26}]},
+    options:{indexAxis:'y', plugins:{legend:{display:false}}, scales:{x:{grid:{color:'#e1e0d9'}}, y:{grid:{display:false}}}}
+  });
+
+  const nvArr = Object.values(state.niveis);
+  safeChart('remNivel', 'chartRemNivel', {
+    type:'bar',
+    data:{labels:nvArr.map(n=>n.nome), datasets:[
+      {label:'Salário base', data:nvArr.map(n=>n.salarioBase), backgroundColor:CATEGORICAL[0], borderRadius:4},
+      {label:'Potencial c/ meta', data:nvArr.map(n=>n.salarioBase+n.meta*n.valorEquip+n.bonusMeta), backgroundColor:CATEGORICAL[2], borderRadius:4},
+      {label:'Potencial c/ supermeta', data:nvArr.map(n=>n.salarioBase+n.supermeta*n.valorEquip+n.bonusSupermeta), backgroundColor:CATEGORICAL[3], borderRadius:4}
+    ]},
+    options:{plugins:{legend:{position:'bottom', labels:{boxWidth:10,font:{size:11}}}}, scales:{y:{grid:{color:'#e1e0d9'}}, x:{grid:{display:false}}}}
+  });
+}
+
+function painelRows(){
+  const mk=state.mesRef;
+  let rows = tecnicos().filter(u=>u.ativo).map(u=>{
+    const nv=nivelDe(u);
+    const qtd=qtdAtendimentosMes(u.id,mk);
+    const prod=produtividadeMes(u.id,mk);
+    const {bonus}=bonusMes(u.id,mk);
+    const infTotal=penalidadesValorMes(u.id,mk);
+    const liquido=remuneracaoEstimadaMes(u.id,mk);
+    return {id:u.id, nome:u.nome, nivel:nv.nome, nivelKey:nv.key, equipamentos:qtd, produtividade:prod, bonus, infracoes:infTotal, liquido};
+  });
+  if(state.filtroPainel.nivel) rows=rows.filter(r=>r.nivelKey===state.filtroPainel.nivel);
+  if(state.filtroPainel.tecnico) rows=rows.filter(r=>r.nome.toLowerCase().includes(state.filtroPainel.tecnico.toLowerCase()));
+  const {col,dir}=state.sortPainel;
+  rows.sort((a,b)=>{
+    const va=a[col], vb=b[col];
+    if(typeof va==='string') return dir==='asc' ? va.localeCompare(vb) : vb.localeCompare(va);
+    return dir==='asc' ? va-vb : vb-va;
+  });
+  return rows;
+}
+function sortPainel(col){
+  if(state.sortPainel.col===col) state.sortPainel.dir = state.sortPainel.dir==='asc'?'desc':'asc';
+  else state.sortPainel={col,dir:'desc'};
+  renderPainelTempoReal();
+}
+function renderPainelTempoReal(){
+  const tbl=document.getElementById('painelTable'); if(!tbl) return;
+  const rows=painelRows();
+  const arrow=c=> state.sortPainel.col===c ? (state.sortPainel.dir==='asc'?' ▲':' ▼') : '';
+  tbl.innerHTML = `
+    <thead><tr>
+      <th onclick="sortPainel('nome')">Técnico${arrow('nome')}</th>
+      <th onclick="sortPainel('nivel')">Nível${arrow('nivel')}</th>
+      <th class="num" onclick="sortPainel('equipamentos')">Equip. no mês${arrow('equipamentos')}</th>
+      <th class="num" onclick="sortPainel('produtividade')">Produtividade${arrow('produtividade')}</th>
+      <th class="num" onclick="sortPainel('bonus')">Bônus de meta${arrow('bonus')}</th>
+      <th class="num" onclick="sortPainel('infracoes')">Total infrações${arrow('infracoes')}</th>
+      <th class="num" onclick="sortPainel('liquido')">Total líquido estimado${arrow('liquido')}</th>
+    </tr></thead>
+    <tbody>
+      ${rows.length ? rows.map(r=>`<tr>
+        <td>${r.nome}</td>
+        <td><span class="badge ${r.nivelKey}">${r.nivel.replace('Técnico ','')}</span></td>
+        <td class="num">${r.equipamentos}</td>
+        <td class="num">${fmtMoney(r.produtividade)}</td>
+        <td class="num">${fmtMoney(r.bonus)}</td>
+        <td class="num">${fmtMoney(r.infracoes)}</td>
+        <td class="num"><b>${fmtMoney(r.liquido)}</b></td>
+      </tr>`).join('') : `<tr><td colspan="7" class="empty-state">Nenhum técnico encontrado com os filtros atuais.</td></tr>`}
+    </tbody>`;
+}
+function exportarPainelCSV(){
+  const rows=painelRows();
+  const header=['Técnico','Nível','Equipamentos no mês','Produtividade (R$)','Bônus de meta (R$)','Total infrações (R$)','Total líquido estimado (R$)'];
+  const lines=[header.join(';')].concat(rows.map(r=>[r.nome,r.nivel,r.equipamentos,r.produtividade.toFixed(2),r.bonus.toFixed(2),r.infracoes.toFixed(2),r.liquido.toFixed(2)].join(';')));
+  downloadCSV(lines.join('\n'), `painel_${state.mesRef}.csv`);
+}
+function downloadCSV(content, filename){
+  const blob=new Blob(['﻿'+content], {type:'text/csv;charset=utf-8;'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a'); a.href=url; a.download=filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
+function renderCardsResumo(){
+  const wrap=document.getElementById('cardsResumo'); if(!wrap) return;
+  const mk=state.mesRef;
+  wrap.innerHTML = tecnicos().filter(u=>u.ativo).map(u=>{
+    const nv=nivelDe(u);
+    const qtd=qtdAtendimentosMes(u.id,mk);
+    const pct=Math.min(100, Math.round(qtd/nv.meta*100));
+    const sp=statusPromocao(u.id,mk);
+    return `<div class="card">
+      <h3>${u.nome} <span class="badge ${nv.key}" style="float:right;">${nv.nome.replace('Técnico ','')}</span></h3>
+      <div class="stat">${qtd} <span style="font-size:12px;color:var(--muted);font-weight:400;">/ ${nv.meta} meta</span></div>
+      <div class="progress-wrap"><div class="progress-fill ${pct>=100?'good':''}" style="width:${pct}%"></div></div>
+      <div class="stat-sub">${sp ? (sp.elegivel ? '<span class="pill good">Elegível p/ promoção</span>' : 'Em avaliação até '+sp.cicloFim) : 'Nível máximo'}</div>
+    </div>`;
+  }).join('');
+}
+
+/* =====================================================================
+   IMPORTAÇÃO — QUESTIONÁRIOS AUVO (Excel/CSV)
+===================================================================== */
+function renderAdminImport(main){
+  main.innerHTML = `
+  <div class="section-head"><h2>Importar atendimentos do Auvo</h2></div>
+  <div class="card section">
+    <p class="small" style="margin-top:0;">Exporte do Auvo a planilha de respostas de questionário (uma linha = um atendimento realizado). Envie o arquivo .xlsx, .xls ou .csv abaixo — cada linha vira um registro de atendimento contabilizado por técnico e por dia.</p>
+    <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" onchange="handleFile(event)">
+    <div id="importArea" style="margin-top:16px;"></div>
+  </div>
+
+  <div class="section">
+    <div class="section-head">
+      <h2>Atendimentos importados</h2>
+      <div class="toolbar">${mesSelectorHTML()}<button class="btn" onclick="exportarAtendimentosCSV()">Exportar CSV</button></div>
+    </div>
+    <div class="card table-wrap">
+      <table>
+        <thead><tr><th>Técnico</th><th>Data</th><th>Equipamento / OS</th><th></th></tr></thead>
+        <tbody>
+        ${(()=>{ const rows=state.atendimentos.filter(a=>monthKey(a.data)===state.mesRef).sort((a,b)=>b.data.localeCompare(a.data));
+          if(!rows.length) return `<tr><td colspan="4" class="empty-state">Nenhum atendimento importado neste mês.</td></tr>`;
+          return rows.map(a=>`<tr><td>${getUsuario(a.tecnicoId)?getUsuario(a.tecnicoId).nome:'—'}</td><td>${a.data}</td><td>${a.equipamento||'—'}</td>
+            <td><button class="link-btn danger-text" onclick="removerAtendimento('${a.id}')">remover</button></td></tr>`).join('');
+        })()}
+        </tbody>
+      </table>
+    </div>
+  </div>`;
+}
+
+function parseCSVText(text){
+  text = text.replace(/^﻿/,'').replace(/\r\n/g,'\n').replace(/\r/g,'\n');
+  const firstLine = text.split('\n')[0];
+  const delim = (firstLine.split(';').length > firstLine.split(',').length) ? ';' : ',';
+  const lines=[]; let cur=[], field='', inQuotes=false;
+  for(let i=0;i<text.length;i++){
+    const c=text[i];
+    if(inQuotes){
+      if(c==='"'){ if(text[i+1]==='"'){ field+='"'; i++; } else inQuotes=false; }
+      else field+=c;
+    } else {
+      if(c==='"') inQuotes=true;
+      else if(c===delim){ cur.push(field); field=''; }
+      else if(c==='\n'){ cur.push(field); lines.push(cur); cur=[]; field=''; }
+      else field+=c;
+    }
+  }
+  if(field.length || cur.length){ cur.push(field); lines.push(cur); }
+  const filtered = lines.filter(l=>l.some(v=>v.trim()!==''));
+  if(!filtered.length) return {headers:[], rows:[]};
+  const headers = filtered[0].map(h=>h.trim());
+  const rows = filtered.slice(1).map(l=>{
+    const obj={}; headers.forEach((h,idx)=>{ obj[h]=l[idx]!==undefined?l[idx].trim():''; }); return obj;
+  });
+  return {headers, rows};
+}
+
+function showImportError(msg){
+  const el=document.getElementById('importArea');
+  if(el) el.innerHTML = `<p class="danger-text small">${msg}</p>`;
+}
+
+function handleFile(ev){
+  const file=ev.target.files[0]; if(!file) return;
+  const nameLower=file.name.toLowerCase();
+  document.getElementById('importArea').innerHTML = '<p class="small">Lendo arquivo...</p>';
+
+  if(nameLower.endsWith('.csv')){
+    const reader=new FileReader();
+    reader.onload=function(e){
+      try{
+        const {headers, rows} = parseCSVText(e.target.result);
+        if(!rows.length || !headers.length){ showImportError('Não foi possível identificar linhas e colunas no CSV. Confira se a primeira linha contém os títulos das colunas (ex: Técnico, Data, Equipamento).'); return; }
+        state.pendingImport = {rows, headers};
+        renderMapping();
+      }catch(err){ showImportError('Erro ao ler o CSV: '+err.message); }
+    };
+    reader.onerror=function(){ showImportError('Não foi possível abrir o arquivo selecionado.'); };
+    reader.readAsText(file, 'UTF-8');
+    return;
+  }
+
+  if(typeof XLSX==='undefined'){
+    showImportError('A biblioteca de leitura de planilhas (.xlsx) não carregou — provavelmente por falta de conexão com a internet neste momento. Exporte do Auvo em formato <b>.csv</b> (não depende dessa biblioteca) ou tente novamente em instantes.');
+    return;
+  }
+  const reader=new FileReader();
+  reader.onload=function(e){
+    try{
+      const data=new Uint8Array(e.target.result);
+      const wb=XLSX.read(data, {type:'array', cellDates:true});
+      const sheet=wb.Sheets[wb.SheetNames[0]];
+      const rows=XLSX.utils.sheet_to_json(sheet, {defval:''});
+      if(!rows.length){ showImportError('A planilha parece vazia.'); return; }
+      state.pendingImport = {rows, headers:Object.keys(rows[0])};
+      renderMapping();
+    }catch(err){
+      showImportError('Erro ao ler o arquivo ('+err.message+'). Tente reabrir e salvar a planilha novamente no Excel, ou exporte como .csv.');
+    }
+  };
+  reader.onerror=function(){ showImportError('Não foi possível abrir o arquivo selecionado.'); };
+  reader.readAsArrayBuffer(file);
+}
+
+function guessColumn(headers, keywords){
+  const h=headers.find(h=>keywords.some(k=>h.toLowerCase().includes(k)));
+  return h||headers[0];
+}
+function renderMapping(){
+  const {rows, headers}=state.pendingImport;
+  const colTec=guessColumn(headers,['técnico','tecnico','responsável','responsavel','funcionário','funcionario','executante']);
+  const colData=guessColumn(headers,['data','date','check-in','checkin']);
+  const colEquip=guessColumn(headers,['equipamento','aparelho','os','ordem','cliente']);
+
+  document.getElementById('importArea').innerHTML = `
+    <hr class="sep">
+    <p><b>${rows.length} linhas encontradas.</b> Confirme quais colunas representam cada campo:</p>
+    <div class="mapping-row"><label class="small">Coluna do Técnico</label>
+      <select id="mapTec">${headers.map(h=>`<option value="${h}" ${h===colTec?'selected':''}>${h}</option>`).join('')}</select></div>
+    <div class="mapping-row"><label class="small">Coluna da Data</label>
+      <select id="mapData">${headers.map(h=>`<option value="${h}" ${h===colData?'selected':''}>${h}</option>`).join('')}</select></div>
+    <div class="mapping-row"><label class="small">Coluna de Equipamento/OS (opcional)</label>
+      <select id="mapEquip"><option value="">— nenhuma —</option>${headers.map(h=>`<option value="${h}" ${h===colEquip?'selected':''}>${h}</option>`).join('')}</select></div>
+    <div style="margin-top:10px;"><button class="btn" onclick="renderTecnicoMatch()">Continuar →</button></div>
+    <div class="preview-table" style="margin-top:12px;">
+      <table><thead><tr>${headers.map(h=>`<th>${h}</th>`).join('')}</tr></thead>
+      <tbody>${rows.slice(0,5).map(r=>`<tr>${headers.map(h=>`<td>${r[h]}</td>`).join('')}</tr>`).join('')}</tbody></table>
+    </div>`;
+}
+
+function parseDateCell(v){
+  if(v instanceof Date) return v.toISOString().slice(0,10);
+  if(typeof v==='number'){ const d=XLSX.SSF.parse_date_code(v); if(d) return `${d.y}-${String(d.m).padStart(2,'0')}-${String(d.d).padStart(2,'0')}`; }
+  const s=String(v).trim();
+  let m=s.match(/^(\d{4})-(\d{2})-(\d{2})/); if(m) return `${m[1]}-${m[2]}-${m[3]}`;
+  m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/); if(m) return `${m[3]}-${String(m[2]).padStart(2,'0')}-${String(m[1]).padStart(2,'0')}`;
+  return todayISO();
+}
+
+function renderTecnicoMatch(){
+  const {rows, headers}=state.pendingImport;
+  const colTec=document.getElementById('mapTec').value;
+  const colData=document.getElementById('mapData').value;
+  const colEquip=document.getElementById('mapEquip').value;
+  state.pendingImport.cols={colTec, colData, colEquip};
+
+  const uniqueNames=[...new Set(rows.map(r=>String(r[colTec]).trim()).filter(Boolean))];
+  const tecs=tecnicos();
+  function autoMatch(name){
+    const lower=name.toLowerCase();
+    let best=tecs.find(t=>t.nome.toLowerCase()===lower);
+    if(!best) best=tecs.find(t=>lower.includes(t.nome.toLowerCase())||t.nome.toLowerCase().includes(lower));
+    return best?best.id:'';
+  }
+  document.getElementById('importArea').innerHTML = `
+    <hr class="sep">
+    <p><b>Associe os nomes encontrados na planilha aos técnicos cadastrados:</b></p>
+    ${uniqueNames.map(name=>`
+      <div class="mapping-row">
+        <span>${name}</span>
+        <select id="match_${btoa(unescape(encodeURIComponent(name))).replace(/[^a-zA-Z0-9]/g,'')}" data-name="${name.replace(/"/g,'&quot;')}" class="tecMatch">
+          <option value="">— ignorar linhas deste nome —</option>
+          ${tecs.map(t=>`<option value="${t.id}" ${autoMatch(name)===t.id?'selected':''}>${t.nome}</option>`).join('')}
+        </select>
+      </div>`).join('')}
+    <div style="margin-top:10px;"><button class="btn btn-primary" style="width:auto;" onclick="confirmImport()">Confirmar importação</button></div>
+  `;
+}
+
+function confirmImport(){
+  const {rows, cols}=state.pendingImport;
+  const selects=[...document.querySelectorAll('.tecMatch')];
+  const nameToId={};
+  selects.forEach(s=>{ nameToId[s.dataset.name]=s.value; });
+  let count=0;
+  rows.forEach((r,idx)=>{
+    const name=String(r[cols.colTec]).trim();
+    const tecId=nameToId[name];
+    if(!tecId) return;
+    const dataISO=parseDateCell(r[cols.colData]);
+    state.atendimentos.push({
+      id:'at_'+Date.now()+'_'+idx,
+      tecnicoId:tecId,
+      data:dataISO,
+      equipamento: cols.colEquip ? String(r[cols.colEquip]) : ''
+    });
+    count++;
+  });
+  state.pendingImport=null;
+  alert(count+' atendimentos importados com sucesso.');
+  renderAll();
+}
+function removerAtendimento(id){
+  state.atendimentos = state.atendimentos.filter(a=>a.id!==id);
+  renderAll();
+}
+function exportarAtendimentosCSV(){
+  const header=['Técnico','Data','Equipamento/OS'];
+  const lines=[header.join(';')].concat(state.atendimentos.map(a=>[getUsuario(a.tecnicoId)?getUsuario(a.tecnicoId).nome:'',a.data,a.equipamento||''].join(';')));
+  downloadCSV(lines.join('\n'), 'atendimentos.csv');
+}
+
+/* =====================================================================
+   INFRAÇÕES
+===================================================================== */
+function renderAdminInfra(main){
+  const mk=state.mesRef;
+  main.innerHTML = `
+  <div class="section-head"><h2>Lançar infração / desvio</h2></div>
+  <div class="card section">
+    <div class="form-grid">
+      <div class="field"><label>Técnico</label>
+        <select id="infTec">${tecnicos().filter(u=>u.ativo).map(u=>`<option value="${u.id}">${u.nome}</option>`).join('')}</select></div>
+      <div class="field"><label>Data</label><input type="date" id="infData" value="${todayISO()}"></div>
+      <div class="field"><label>Categoria</label>
+        <select id="infCat" onchange="updateTipoOptions()">
+          <option value="moderada">Desvio Moderado (${fmtMoney(state.penalidades.moderada)})</option>
+          <option value="grave">Desvio Grave (${fmtMoney(state.penalidades.grave)})</option>
+        </select></div>
+      <div class="field"><label>Tipo de desvio</label><select id="infTipo"></select></div>
+    </div>
+    <div class="field" style="margin-top:10px;"><label><input type="checkbox" id="infAdvertencia" style="width:auto;margin-right:6px;">Gerou advertência formal</label></div>
+    <button class="btn btn-primary" style="width:auto;margin-top:6px;" onclick="lancarInfracao()">Lançar infração</button>
+  </div>
+
+  <div class="section">
+    <div class="section-head"><h2>Infrações lançadas</h2><div class="toolbar">${mesSelectorHTML()}</div></div>
+    <div class="card table-wrap">
+      <table><thead><tr><th>Técnico</th><th>Data</th><th>Categoria</th><th>Tipo</th><th class="num">Valor</th><th>Advertência</th><th></th></tr></thead>
+      <tbody>
+      ${(()=>{ const rows=state.infracoes.filter(i=>monthKey(i.data)===mk).sort((a,b)=>b.data.localeCompare(a.data));
+        if(!rows.length) return `<tr><td colspan="7" class="empty-state">Nenhuma infração lançada neste mês.</td></tr>`;
+        return rows.map(i=>`<tr>
+          <td>${getUsuario(i.tecnicoId)?getUsuario(i.tecnicoId).nome:'—'}</td>
+          <td>${i.data}</td>
+          <td><span class="pill ${i.categoria==='grave'?'bad':'warn'}">${i.categoria==='grave'?'Grave':'Moderado'}</span></td>
+          <td>${i.tipo}</td>
+          <td class="num">${fmtMoney(i.valor)}</td>
+          <td>${i.gerouAdvertencia?'Sim':'—'}</td>
+          <td><button class="link-btn danger-text" onclick="removerInfracao('${i.id}')">remover</button></td>
+        </tr>`).join('');
+      })()}
+      </tbody></table>
+    </div>
+  </div>`;
+  updateTipoOptions();
+}
+function updateTipoOptions(){
+  const cat=document.getElementById('infCat').value;
+  const list = cat==='grave' ? TIPOS_GRAVE : TIPOS_MODERADO;
+  document.getElementById('infTipo').innerHTML = list.map(t=>`<option value="${t}">${t}</option>`).join('');
+}
+function lancarInfracao(){
+  const tecnicoId=document.getElementById('infTec').value;
+  const data=document.getElementById('infData').value || todayISO();
+  const categoria=document.getElementById('infCat').value;
+  const tipo=document.getElementById('infTipo').value;
+  const gerouAdvertencia=document.getElementById('infAdvertencia').checked;
+  const valor = categoria==='grave' ? state.penalidades.grave : state.penalidades.moderada;
+  state.infracoes.push({id:'inf_'+Date.now(), tecnicoId, data, tipo, categoria, valor, gerouAdvertencia});
+  renderAll();
+}
+function removerInfracao(id){
+  state.infracoes = state.infracoes.filter(i=>i.id!==id);
+  renderAll();
+}
+
+/* =====================================================================
+   BÔNUS E METAS (aba compartilhada admin/técnico)
+===================================================================== */
+function renderBonusMetas(main){
+  const mk=state.mesRef;
+  const isAdmin = state.session.tipo==='admin';
+  const alvo = isAdmin ? tecnicos().filter(u=>u.ativo) : [state.session];
+
+  main.innerHTML = `
+  <div class="section-head"><h2>Bônus e Metas</h2><div class="toolbar">${mesSelectorHTML()}</div></div>
+
+  <div class="grid grid-2 section">
+    <div class="card">
+      <h3>Valor por equipamento atendido (produtividade)</h3>
+      <table><thead><tr><th>Nível</th><th class="num">Valor por equipamento</th></tr></thead>
+      <tbody>${Object.values(state.niveis).map(n=>`<tr><td><span class="badge ${n.key}">${n.nome}</span></td><td class="num">${fmtMoney(n.valorEquip)}</td></tr>`).join('')}</tbody></table>
+    </div>
+    <div class="card">
+      <h3>Bônus por meta / supermeta</h3>
+      <table><thead><tr><th>Nível</th><th class="num">Meta</th><th class="num">Bônus</th><th class="num">Supermeta</th><th class="num">Bônus</th></tr></thead>
+      <tbody>${Object.values(state.niveis).map(n=>`<tr><td><span class="badge ${n.key}">${n.nome}</span></td>
+        <td class="num">${n.meta}</td><td class="num">${fmtMoney(n.bonusMeta)}</td>
+        <td class="num">${n.supermeta}</td><td class="num">${fmtMoney(n.bonusSupermeta)}</td></tr>`).join('')}</tbody></table>
+      <p class="small" style="margin-top:8px;">Modo de aplicação ao bater supermeta: <b>${state.penalidades.modoBonus==='somar'?'soma o bônus da meta + supermeta':'substitui pelo bônus da supermeta'}</b> (configurável em Configurações).</p>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-head"><h2>${isAdmin?'Status por técnico':'Meu status'}</h2></div>
+    <div class="card table-wrap">
+      <table><thead><tr><th>Técnico</th><th>Nível</th><th class="num">Equip. no mês</th><th class="num">Produtividade</th><th class="num">Bônus aplicado</th><th>Situação</th></tr></thead>
+      <tbody>
+      ${alvo.map(u=>{
+        const nv=nivelDe(u); const {bonus,status,qtd}=bonusMes(u.id,mk);
+        const prod=produtividadeMes(u.id,mk);
+        const pillClass = status==='supermeta'?'good':status==='meta'?'good':'warn';
+        const pillLabel = status==='supermeta'?'Supermeta batida':status==='meta'?'Meta batida':'Abaixo da meta';
+        return `<tr><td>${u.nome}</td><td><span class="badge ${nv.key}">${nv.nome.replace('Técnico ','')}</span></td>
+          <td class="num">${qtd}</td><td class="num">${fmtMoney(prod)}</td><td class="num">${fmtMoney(bonus)}</td>
+          <td><span class="pill ${pillClass}"><span class="dot ${pillClass==='good'?'good':'warn'}"></span>${pillLabel}</span></td></tr>`;
+      }).join('')}
+      </tbody></table>
+    </div>
+  </div>`;
+}
+
+/* =====================================================================
+   CONFIGURAÇÕES
+===================================================================== */
+function renderAdminConfig(main){
+  main.innerHTML = `
+  <div class="section-head"><h2>Configurações</h2></div>
+  <div class="card section">
+    <h3>Parâmetros por nível</h3>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Nível</th><th class="num">Salário base</th><th class="num">Valor/equip.</th><th class="num">Meta</th><th class="num">Bônus meta</th><th class="num">Supermeta</th><th class="num">Bônus supermeta</th><th class="num">Ciclo (meses p/ promoção)</th></tr></thead>
+      <tbody>
+      ${Object.values(state.niveis).map(n=>`<tr>
+        <td><span class="badge ${n.key}">${n.nome}</span></td>
+        <td class="num"><input style="width:90px" type="number" step="0.01" id="cfg_${n.key}_salarioBase" value="${n.salarioBase}"></td>
+        <td class="num"><input style="width:70px" type="number" step="0.01" id="cfg_${n.key}_valorEquip" value="${n.valorEquip}"></td>
+        <td class="num"><input style="width:70px" type="number" id="cfg_${n.key}_meta" value="${n.meta}"></td>
+        <td class="num"><input style="width:70px" type="number" step="0.01" id="cfg_${n.key}_bonusMeta" value="${n.bonusMeta}"></td>
+        <td class="num"><input style="width:70px" type="number" id="cfg_${n.key}_supermeta" value="${n.supermeta}"></td>
+        <td class="num"><input style="width:80px" type="number" step="0.01" id="cfg_${n.key}_bonusSupermeta" value="${n.bonusSupermeta}"></td>
+        <td class="num">${n.cicloMeses ? `<input style="width:60px" type="number" id="cfg_${n.key}_cicloMeses" value="${n.cicloMeses}">` : '—'}</td>
+      </tr>`).join('')}
+      </tbody>
+    </table></div>
+
+    <hr class="sep">
+    <h3>Penalidades</h3>
+    <div class="form-grid">
+      <div class="field"><label>Valor desvio moderado (R$)</label><input type="number" step="0.01" id="cfg_pen_moderada" value="${state.penalidades.moderada}"></div>
+      <div class="field"><label>Valor desvio grave (R$)</label><input type="number" step="0.01" id="cfg_pen_grave" value="${state.penalidades.grave}"></div>
+      <div class="field"><label>Modo bônus ao bater supermeta</label>
+        <select id="cfg_modoBonus">
+          <option value="substituir" ${state.penalidades.modoBonus==='substituir'?'selected':''}>Substitui bônus da meta</option>
+          <option value="somar" ${state.penalidades.modoBonus==='somar'?'selected':''}>Soma ao bônus da meta</option>
+        </select>
+      </div>
+    </div>
+    <button class="btn btn-primary" style="width:auto;margin-top:16px;" onclick="salvarConfig()">Salvar configurações</button>
+    <span id="cfgSavedMsg" class="small" style="margin-left:10px;color:var(--good);"></span>
+  </div>
+  <div class="note-box">Alterações aqui recalculam automaticamente remuneração, bônus e critérios de promoção de todos os técnicos — nenhum valor fica fixo no código.</div>
+  `;
+}
+function salvarConfig(){
+  Object.keys(state.niveis).forEach(key=>{
+    const n=state.niveis[key];
+    n.salarioBase = parseFloat(document.getElementById(`cfg_${key}_salarioBase`).value)||0;
+    n.valorEquip = parseFloat(document.getElementById(`cfg_${key}_valorEquip`).value)||0;
+    n.meta = parseInt(document.getElementById(`cfg_${key}_meta`).value)||0;
+    n.bonusMeta = parseFloat(document.getElementById(`cfg_${key}_bonusMeta`).value)||0;
+    n.supermeta = parseInt(document.getElementById(`cfg_${key}_supermeta`).value)||0;
+    n.bonusSupermeta = parseFloat(document.getElementById(`cfg_${key}_bonusSupermeta`).value)||0;
+    if(n.cicloMeses){ const el=document.getElementById(`cfg_${key}_cicloMeses`); if(el) n.cicloMeses=parseInt(el.value)||n.cicloMeses; }
+  });
+  state.penalidades.moderada = parseFloat(document.getElementById('cfg_pen_moderada').value)||0;
+  state.penalidades.grave = parseFloat(document.getElementById('cfg_pen_grave').value)||0;
+  state.penalidades.modoBonus = document.getElementById('cfg_modoBonus').value;
+  document.getElementById('cfgSavedMsg').textContent='Configurações salvas.';
+  setTimeout(renderAll, 400);
+}
+
+/* =====================================================================
+   CONTAS
+===================================================================== */
+function renderAdminContas(main){
+  main.innerHTML = `
+  <div class="section-head"><h2>Acessos dos Técnicos</h2></div>
+  <p class="small" style="margin-top:-6px;">Renomeie os técnicos com os nomes reais da equipe, defina o nível de cada um e gerencie login/senha de acesso.</p>
+  <div class="card table-wrap">
+    <table><thead><tr><th>Nome</th><th>Login</th><th>Nível</th><th>Senha</th><th>Status</th><th></th></tr></thead>
+    <tbody>
+    ${tecnicos().map(u=>`<tr>
+      <td><input style="width:140px" value="${u.nome}" onchange="renomearTecnico('${u.id}', this.value)"></td>
+      <td class="mono">${u.login}</td>
+      <td><select onchange="mudarNivel('${u.id}', this.value)">
+        ${Object.values(state.niveis).map(n=>`<option value="${n.key}" ${u.nivel===n.key?'selected':''}>${n.nome}</option>`).join('')}
+      </select></td>
+      <td class="mono">${u.senha}</td>
+      <td>${u.ativo?'<span class="pill good">Ativa</span>':'<span class="pill bad">Desativada</span>'}</td>
+      <td>
+        <button class="link-btn" onclick="redefinirSenha('${u.id}')">redefinir senha</button> ·
+        <button class="link-btn ${u.ativo?'danger-text':''}" onclick="toggleAtivo('${u.id}')">${u.ativo?'desativar':'ativar'}</button>
+      </td>
+    </tr>`).join('')}
+    </tbody></table>
+  </div>
+  <div class="note-box" style="margin-top:14px;">As senhas são exibidas em texto para fins de demonstração (sem backend real). Em produção, use hash (bcrypt) e nunca exiba a senha após a criação.</div>
+  `;
+}
+function renomearTecnico(id, nome){ getUsuario(id).nome = nome || getUsuario(id).nome; renderAll(); }
+function mudarNivel(id, nivel){
+  const u=getUsuario(id); u.nivel=nivel; u.cicloInicio=todayISO();
+  renderAll();
+}
+function redefinirSenha(id){ getUsuario(id).senha = genSenha(); renderAll(); }
+function toggleAtivo(id){ const u=getUsuario(id); u.ativo=!u.ativo; renderAll(); }
+
+/* =====================================================================
+   PAINEL DO TÉCNICO
+===================================================================== */
+function renderTecDash(main){
+  const u=state.session, nv=nivelDe(u), mk=state.mesRef;
+  const qtd=qtdAtendimentosMes(u.id,mk);
+  const pctMeta=Math.min(100, Math.round(qtd/nv.meta*100));
+  const pctSuper=Math.min(100, Math.round(qtd/nv.supermeta*100));
+  const {bonus,status}=bonusMes(u.id,mk);
+  const infMod=infracoesDoMes(u.id,mk).filter(i=>i.categoria==='moderada');
+  const infGrave=infracoesDoMes(u.id,mk).filter(i=>i.categoria==='grave');
+  const percPen=percentualPenalidadesMes(u.id,mk);
+  const limitePen = nv.criterios ? nv.criterios.maxPenalidadePerc : 5;
+  const rem=remuneracaoEstimadaMes(u.id,mk);
+  const sp=statusPromocao(u.id,mk);
+
+  main.innerHTML = `
+  <div class="section-head"><h2>Meu painel — ${u.nome}</h2><div class="toolbar">${mesSelectorHTML()}</div></div>
+
+  <div class="grid grid-4 section">
+    <div class="card"><h3>Nível atual</h3><div class="stat"><span class="badge ${nv.key}" style="font-size:14px;padding:5px 12px;">${nv.nome}</span></div><div class="stat-sub">Desde ${u.cicloInicio}</div></div>
+    <div class="card"><h3>Equipamentos no mês</h3><div class="stat">${qtd}</div>
+      <div class="progress-wrap"><div class="progress-fill ${pctMeta>=100?'good':''}" style="width:${pctMeta}%"></div></div>
+      <div class="progress-labels"><span>Meta ${nv.meta}</span><span>Supermeta ${nv.supermeta}</span></div>
+    </div>
+    <div class="card"><h3>Remuneração estimada</h3><div class="stat">${fmtMoney(rem)}</div><div class="stat-sub">salário base + produtividade + bônus − penalidades</div></div>
+    <div class="card"><h3>% penalidades</h3><div class="stat" style="color:${percPen>limitePen?'var(--critical)':'var(--good)'}">${percPen.toFixed(1)}%</div><div class="stat-sub">limite do nível: ${limitePen}%</div></div>
+  </div>
+
+  <div class="grid grid-2 section">
+    <div class="card">
+      <h3>Histórico diário de atendimentos — ${fmtMonthLabel(mk)}</h3>
+      <canvas id="chartDiario" height="200"></canvas>
+    </div>
+    <div class="card">
+      <h3>Progresso rumo à promoção${sp?' — '+sp.proximo.nome:''}</h3>
+      ${sp ? `
+        ${sp.itens.map(it=>`<div class="checklist-item">
+          <div class="check-icon ${it.ok?'ok':'pending'}">${it.ok?'✓':'•'}</div>
+          <div><div class="ci-title">${it.label}</div><div class="ci-sub">Atual: ${it.atual} · Alvo: ${it.alvo}</div></div>
+        </div>`).join('')}
+        <hr class="sep">
+        ${sp.elegivel
+          ? `<span class="pill good">Elegível para promoção</span>`
+          : `<span class="pill warn">Ciclo em avaliação até ${sp.cicloFim}</span>`}
+      ` : `<p class="small">Você está no nível máximo (Sênior). Não há próximo nível configurado.</p>`}
+    </div>
+  </div>
+
+  <div class="grid grid-2 section">
+    <div class="card">
+      <h3>Infrações — Moderadas (${fmtMoney(state.penalidades.moderada)} cada)</h3>
+      ${infMod.length ? `<table><thead><tr><th>Data</th><th>Tipo</th></tr></thead><tbody>
+        ${infMod.map(i=>`<tr><td>${i.data}</td><td>${i.tipo}</td></tr>`).join('')}</tbody></table>`
+        : `<div class="empty-state">Nenhuma infração moderada neste mês.</div>`}
+    </div>
+    <div class="card">
+      <h3>Infrações — Graves (${fmtMoney(state.penalidades.grave)} cada)</h3>
+      ${infGrave.length ? `<table><thead><tr><th>Data</th><th>Tipo</th></tr></thead><tbody>
+        ${infGrave.map(i=>`<tr><td>${i.data}</td><td>${i.tipo}</td></tr>`).join('')}</tbody></table>`
+        : `<div class="empty-state">Nenhuma infração grave neste mês.</div>`}
+    </div>
+  </div>
+  `;
+
+  // gráfico diário
+  const dim = daysInMonth(mk);
+  const porDia = Array(dim).fill(0);
+  atendimentosDoMes(u.id, mk).forEach(a=>{ const day=parseInt(a.data.slice(8,10),10); if(day>=1&&day<=dim) porDia[day-1]++; });
+  safeChart('diario', 'chartDiario', {
+    type:'bar',
+    data:{labels:Array.from({length:dim},(_,i)=>i+1), datasets:[{label:'Atendimentos', data:porDia, backgroundColor:CATEGORICAL[0], borderRadius:4, maxBarThickness:18}]},
+    options:{plugins:{legend:{display:false}}, scales:{x:{grid:{display:false}}, y:{grid:{color:'#e1e0d9'}, beginAtZero:true, ticks:{precision:0}}}}
+  });
+}
+
+/* =====================================================================
+   INICIALIZAÇÃO
+===================================================================== */
+populateLoginSelect();
+</script>
+</body>
+</html>
