@@ -407,8 +407,55 @@ async function buildSessionFromSupabase(supabaseUser) {
   return session;
 }
 
+/* Busca a equipe real de técnicos no Supabase (profiles + technicians + nível)
+   para o admin. Sem isso, Visão Geral / Bônus e Metas / Infrações mostravam os
+   8 técnicos fictícios do código local (Técnico 1..8) em vez da equipe real. */
+async function carregarTecnicosSupabase() {
+  const { data: perfis, error: perfisErr } = await supabaseClient
+    .from('profiles')
+    .select('id, role, display_name, is_active')
+    .eq('role', 'technician');
+  if (perfisErr) throw perfisErr;
+
+  const ids = (perfis || []).map(p => p.id);
+  let tecnicosDb = [];
+  if (ids.length) {
+    const { data, error: tecErr } = await supabaseClient
+      .from('technicians')
+      .select('id, admission_date, cycle_start, career_levels ( key )')
+      .in('id', ids);
+    if (tecErr) throw tecErr;
+    tecnicosDb = data || [];
+  }
+  const tecnicosPorId = {};
+  tecnicosDb.forEach(t => { tecnicosPorId[t.id] = t; });
+
+  const reais = (perfis || []).map(p => {
+    const t = tecnicosPorId[p.id] || {};
+    return {
+      id: p.id,
+      tipo: 'tecnico',
+      nome: p.display_name || '(sem nome)',
+      ativo: p.is_active !== false,
+      nivel: t.career_levels?.key || 'junior',
+      dataAdmissao: t.admission_date || todayISO(),
+      cicloInicio: t.cycle_start || todayISO()
+    };
+  });
+
+  state.usuarios = [state.session].concat(reais);
+}
+
 /* Abre o app após obter state.session */
-function openApp() {
+async function openApp() {
+  if (state.session.tipo === 'admin') {
+    try {
+      await carregarTecnicosSupabase();
+    } catch (e) {
+      state.usuarios = [state.session];
+      console.error('Falha ao carregar técnicos do Supabase:', e);
+    }
+  }
   document.getElementById('loginScreen').classList.add('hidden');
   document.getElementById('app').classList.remove('hidden');
   buildTabs();
@@ -433,7 +480,7 @@ async function doLogin() {
     if (error) throw error;
 
     state.session = await buildSessionFromSupabase(data.user);
-    openApp();
+    await openApp();
   } catch (e) {
     err.textContent = e.message === 'Invalid login credentials'
       ? 'E-mail ou senha incorretos.'
@@ -1354,7 +1401,7 @@ const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
   if (session?.user) {
     try {
       state.session = await buildSessionFromSupabase(session.user);
-      openApp();
+      await openApp();
     } catch (e) {
       // Perfil inválido ou desativado — força logout limpo
       await supabaseClient.auth.signOut();
@@ -1367,7 +1414,7 @@ const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
     if (event === 'SIGNED_IN' && session?.user && !state.session) {
       try {
         state.session = await buildSessionFromSupabase(session.user);
-        openApp();
+        await openApp();
       } catch (e) {
         await supabaseClient.auth.signOut();
       }
