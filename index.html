@@ -371,11 +371,11 @@ async function buildSessionFromSupabase(supabaseUser) {
   const tipo = profile.role === 'admin' ? 'admin' : 'tecnico';
 
   // 2. Se for técnico, buscar dados específicos + nível
-  let nivel = null, dataAdmissao = null, cicloInicio = null;
+  let nivel = null, dataAdmissao = null, cicloInicio = null, auvoNome = null;
   if (tipo === 'tecnico') {
     const { data: tec, error: tecErr } = await supabaseClient
       .from('technicians')
-      .select('id, admission_date, cycle_start, current_level_id')
+      .select('id, admission_date, cycle_start, current_level_id, auvo_name')
       .eq('id', uid)
       .single();
 
@@ -386,6 +386,7 @@ async function buildSessionFromSupabase(supabaseUser) {
     nivel        = tec.current_level_id ?? 'junior';
     dataAdmissao = tec.admission_date   ?? todayISO();
     cicloInicio  = tec.cycle_start      ?? todayISO();
+    auvoNome     = tec.auvo_name        ?? null;
   }
 
   // 3. Montar objeto no formato esperado pelo código existente
@@ -397,7 +398,10 @@ async function buildSessionFromSupabase(supabaseUser) {
     // campos exclusivos de técnico (null para admin — nenhum código os lê para admin)
     nivel:        nivel,
     dataAdmissao: dataAdmissao,
-    cicloInicio:  cicloInicio
+    cicloInicio:  cicloInicio,
+    // nome exatamente como aparece na coluna "Colaborador" da planilha do Auvo,
+    // usado para casar a contagem de atendimentos. Sem isso, cai no nome normal.
+    auvoNome:     auvoNome
   };
 
   return session;
@@ -418,7 +422,7 @@ async function carregarTecnicosSupabase() {
   if (ids.length) {
     const { data, error: tecErr } = await supabaseClient
       .from('technicians')
-      .select('id, admission_date, cycle_start, current_level_id')
+      .select('id, admission_date, cycle_start, current_level_id, auvo_name')
       .in('id', ids);
     if (tecErr) throw tecErr;
     tecnicosDb = data || [];
@@ -435,7 +439,8 @@ async function carregarTecnicosSupabase() {
       ativo: p.is_active !== false,
       nivel: t.current_level_id || 'junior',
       dataAdmissao: t.admission_date || todayISO(),
-      cicloInicio: t.cycle_start || todayISO()
+      cicloInicio: t.cycle_start || todayISO(),
+      auvoNome: t.auvo_name || ''
     };
   });
 
@@ -1154,7 +1159,10 @@ function renderAdminContas(main){
   const avisoSupabase = state.tecnicosOrigem === 'supabase' ? `
   <div class="note-box" style="margin-bottom:14px;">
     Login e senha desses técnicos são gerenciados no Supabase (Authentication), não aqui.
-    Nome, nível e status ficam só nesta tela até você clicar em <b>Salvar no Supabase</b>.
+    Preencha <b>Nome no Auvo</b> exatamente como aparece na coluna "Colaborador" da planilha
+    (ex.: <span class="mono">LEONARDO SILVA SAETA</span>) — é o que liga esse técnico à contagem
+    de atendimentos. Nome, nível, nome no Auvo e status ficam só nesta tela até clicar em
+    <b>Salvar no Supabase</b>.
   </div>` : '';
 
   main.innerHTML = `
@@ -1162,12 +1170,15 @@ function renderAdminContas(main){
   <p class="small" style="margin-top:-6px;">Renomeie os técnicos com os nomes reais da equipe, defina o nível de cada um e gerencie login/senha de acesso.</p>
   ${avisoFicticio}${avisoSupabase}
   <div class="card table-wrap">
-    <table><thead><tr><th>Nome</th><th>Login</th><th>Nível</th><th>Senha</th><th>Status</th><th></th></tr></thead>
+    <table><thead><tr><th>Nome</th><th>Nome no Auvo</th><th>Login</th><th>Nível</th><th>Senha</th><th>Status</th><th></th></tr></thead>
     <tbody>
     ${tecnicos().map(u=>{
       const ficticio = typeof u.login === 'string';
       return `<tr>
       <td><input style="width:140px" value="${u.nome}" onchange="renomearTecnico('${u.id}', this.value)"></td>
+      <td>${ficticio
+        ? '<span class="small" style="color:var(--muted)">—</span>'
+        : `<input style="width:170px" value="${u.auvoNome || ''}" placeholder="ex.: LEONARDO SILVA SAETA" onchange="mudarAuvoNome('${u.id}', this.value)">`}</td>
       <td class="mono">${ficticio ? u.login : '<span class="small" style="color:var(--muted)">Supabase</span>'}</td>
       <td><select onchange="mudarNivel('${u.id}', this.value)">
         ${Object.values(state.niveis).map(n=>`<option value="${n.key}" ${u.nivel===n.key?'selected':''}>${n.nome}</option>`).join('')}
@@ -1197,6 +1208,7 @@ function mudarNivel(id, nivel){
 }
 function redefinirSenha(id){ getUsuario(id).senha = genSenha(); renderAll(); }
 function toggleAtivo(id){ const u=getUsuario(id); u.ativo=!u.ativo; renderAll(); }
+function mudarAuvoNome(id, valor){ getUsuario(id).auvoNome = valor.trim(); renderAll(); }
 
 /* Grava nome, nível, ciclo e status dos técnicos reais de volta no Supabase.
    Só existe quando state.tecnicosOrigem === 'supabase' (técnicos fictícios
@@ -1224,7 +1236,7 @@ async function salvarTecnicosSupabase(){
 
       const { data: tecData, error: tecErr } = await supabaseClient
         .from('technicians')
-        .update({ current_level_id: u.nivel, cycle_start: u.cicloInicio })
+        .update({ current_level_id: u.nivel, cycle_start: u.cicloInicio, auvo_name: u.auvoNome || null })
         .eq('id', u.id)
         .select();
       if (tecErr) throw tecErr;
@@ -1450,7 +1462,8 @@ function renderAtendimentosContagem(){
   const contagem = contarAtendimentosSheetPorTecnico_(sheet.linhas, sheet.headers, state.mesRef);
 
   if(!isAdmin){
-    const item = contagem[normTxt(state.session.nome)];
+    const chave = normTxt(state.session.auvoNome || state.session.nome);
+    const item = contagem[chave];
     wrap.innerHTML = `<div class="grid grid-4">
       <div class="card"><h3>Atendimentos no mês (Auvo)</h3>
         <div class="stat">${item ? item.qtd : 0}</div>
@@ -1460,12 +1473,36 @@ function renderAtendimentosContagem(){
     return;
   }
 
-  const linhas = Object.values(contagem).sort((a,b)=>b.qtd-a.qtd);
+  // Casa cada técnico cadastrado com sua contagem via "Nome no Auvo" (com
+  // fallback pro nome normal). O que sobrar em "contagem" são nomes da
+  // planilha que não bateram com nenhum técnico — útil pra achar vínculos
+  // faltando ou nomes que não são técnicos de campo (ex.: contas de estoque).
+  const usadas = new Set();
+  const linhasTecnicos = tecnicos().map(u=>{
+    const chave = normTxt(u.auvoNome || u.nome);
+    usadas.add(chave);
+    return { nome: u.nome, qtd: contagem[chave] ? contagem[chave].qtd : 0 };
+  }).sort((a,b)=>b.qtd-a.qtd);
+
+  const naoVinculados = Object.keys(contagem)
+    .filter(chave => !usadas.has(chave))
+    .map(chave => contagem[chave])
+    .sort((a,b)=>b.qtd-a.qtd);
+
   wrap.innerHTML = `<div class="card table-wrap"><table>
     <thead><tr><th>Técnico</th><th class="num">Atendimentos no mês</th></tr></thead>
-    <tbody>${linhas.length ? linhas.map(l=>`<tr><td>${l.nome}</td><td class="num">${l.qtd}</td></tr>`).join('')
-      : `<tr><td colspan="2" class="empty-state">Nenhum atendimento encontrado para ${fmtMonthLabel(state.mesRef)}.</td></tr>`}</tbody>
-  </table></div>`;
+    <tbody>${linhasTecnicos.length ? linhasTecnicos.map(l=>`<tr><td>${l.nome}</td><td class="num">${l.qtd}</td></tr>`).join('')
+      : `<tr><td colspan="2" class="empty-state">Nenhum técnico cadastrado.</td></tr>`}</tbody>
+  </table></div>
+  ${naoVinculados.length ? `
+  <div class="card table-wrap" style="margin-top:12px;">
+    <h3 style="margin:0 0 8px;font-size:13px;text-transform:uppercase;color:var(--text-secondary);">Nomes na planilha sem técnico vinculado</h3>
+    <table>
+      <thead><tr><th>Nome no Auvo</th><th class="num">Atendimentos</th></tr></thead>
+      <tbody>${naoVinculados.map(l=>`<tr><td>${l.nome}</td><td class="num">${l.qtd}</td></tr>`).join('')}</tbody>
+    </table>
+    <p class="small" style="margin-top:8px;color:var(--muted);">Se algum desses for um técnico de verdade, preencha "Nome no Auvo" em Acessos dos Técnicos com esse texto exato para vincular.</p>
+  </div>` : ''}`;
 }
 
 /* =====================================================================
