@@ -6,6 +6,7 @@
 <title>OLFATI · Acompanhamento de Carreira Técnica</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 :root{
   color-scheme: light;
@@ -142,18 +143,17 @@ canvas{max-width:100%;}
     <h1>OLFATI <span>·</span> Acompanhamento Técnico</h1>
     <p class="sub">Plano de carreira — Técnicos em Manutenção</p>
     <div class="field">
-      <label>Perfil</label>
-      <select id="loginUser"></select>
+      <label>E-mail</label>
+      <input type="email" id="loginEmail" placeholder="seu@email.com" autocomplete="username">
     </div>
     <div class="field">
       <label>Senha</label>
-      <input type="password" id="loginPass" placeholder="Digite a senha">
+      <input type="password" id="loginPass" placeholder="Digite a senha" autocomplete="current-password">
     </div>
-    <button class="btn btn-primary" onclick="doLogin()">Entrar</button>
+    <button class="btn btn-primary" id="loginBtn" onclick="doLogin()">Entrar</button>
     <div id="loginError" class="small danger-text" style="margin-top:8px;"></div>
     <div class="login-note">
-      Demonstração local: usuário <b>admin</b> senha <b>admin123</b>. Técnicos usam <b>tecnico1</b>…<b>tecnico8</b> com a senha temporária exibida em <b>Contas</b> (login como admin primeiro).
-      Os dados desta sessão ficam apenas na memória do navegador — nada é salvo automaticamente. Use <b>Exportar CSV</b> com frequência para não perder lançamentos.
+      Entre com o e-mail e senha cadastrados pelo administrador. Em caso de dúvida, contate o responsável pelo sistema.
     </div>
   </div>
 </div>
@@ -177,6 +177,18 @@ canvas{max-width:100%;}
    ESTADO GLOBAL (em memória — sem localStorage)
 ===================================================================== */
 const CATEGORICAL = ['#2a78d6','#eb6834','#1baf7a','#eda100','#e87ba4','#008300','#4a3aa7','#e34948'];
+
+/* URL do CSV publicado do Google Sheets usado para contar atendimentos por técnico.
+   Esta tela só CONTA linhas por técnico/mês — não precisa e não deve expor CPF/CNPJ,
+   cliente ou qualquer outro dado sensível. A aba publicada só precisa ter 2 colunas:
+   "Colaborador" e "Data da tarefa". Se você tem mais de um tipo de questionário (ex.:
+   manutenção e refil), junte as linhas de todos eles nessa mesma aba antes de publicar —
+   todos contam igual, sem distinção de tipo.
+   Como configurar: crie uma aba nova só com essas 2 colunas, copie/cole os dados de cada
+   fonte, depois Arquivo → Compartilhar → Publicar na Web → selecione essa aba → CSV → Publicar.
+   Cole aqui o link gerado. Deixe vazio para manter esta aba desativada. */
+const ATENDIMENTOS_SHEET_CSV_URL = '';
+const ATENDIMENTOS_AUTO_REFRESH_MS = 5 * 60 * 1000; // 5 minutos
 
 function defaultNiveis(){
   return {
@@ -228,7 +240,8 @@ const state = {
   sortPainel: {col:'equipamentos', dir:'desc'},
   filtroPainel: {nivel:'', tecnico:''},
   activeTab: null,
-  pendingImport: null
+  pendingImport: null,
+  atendimentosSheet: { linhas: [], headers: [], atualizadoEm: null, carregando: false, erro: '' }
 };
 
 /* =====================================================================
@@ -333,35 +346,114 @@ function statusPromocao(tecnicoId, mkAtual){
 }
 
 /* =====================================================================
-   AUTENTICAÇÃO
+   AUTENTICAÇÃO — Supabase
 ===================================================================== */
-function populateLoginSelect(){
-  const sel=document.getElementById('loginUser'); sel.innerHTML='';
-  state.usuarios.filter(u=>u.ativo).forEach(u=>{
-    const opt=document.createElement('option'); opt.value=u.id;
-    opt.textContent = u.tipo==='admin' ? 'Administrador' : u.nome+' ('+u.login+')';
-    sel.appendChild(opt);
-  });
+
+/* Busca profile + dados de técnico no Supabase e monta state.session
+   no formato que o restante do código espera:
+   { id, tipo, nome, nivel, ativo, dataAdmissao, cicloInicio }          */
+async function buildSessionFromSupabase(supabaseUser) {
+  const uid = supabaseUser.id;
+
+  // 1. Buscar perfil
+  const { data: profile, error: profErr } = await supabaseClient
+    .from('profiles')
+    .select('id, role, display_name, is_active')
+    .eq('id', uid)
+    .single();
+
+  if (profErr || !profile) {
+    throw new Error('Perfil não encontrado. Contate o administrador.');
+  }
+  if (!profile.is_active) {
+    throw new Error('Conta desativada. Contate o administrador.');
+  }
+
+  const tipo = profile.role === 'admin' ? 'admin' : 'tecnico';
+
+  // 2. Se for técnico, buscar dados específicos + nível
+  let nivel = null, dataAdmissao = null, cicloInicio = null;
+  if (tipo === 'tecnico') {
+    const { data: tec, error: tecErr } = await supabaseClient
+      .from('technicians')
+      .select(`
+        id,
+        admission_date,
+        cycle_start,
+        career_levels ( key )
+      `)
+      .eq('id', uid)
+      .single();
+
+    if (tecErr || !tec) {
+      throw new Error('Dados do técnico não encontrados. Contate o administrador.');
+    }
+
+    nivel        = tec.career_levels?.key ?? 'junior';
+    dataAdmissao = tec.admission_date  ?? todayISO();
+    cicloInicio  = tec.cycle_start     ?? todayISO();
+  }
+
+  // 3. Montar objeto no formato esperado pelo código existente
+  const session = {
+    id:           uid,
+    tipo:         tipo,
+    nome:         profile.display_name || supabaseUser.email,
+    ativo:        profile.is_active,
+    // campos exclusivos de técnico (null para admin — nenhum código os lê para admin)
+    nivel:        nivel,
+    dataAdmissao: dataAdmissao,
+    cicloInicio:  cicloInicio
+  };
+
+  return session;
 }
-function doLogin(){
-  const id=document.getElementById('loginUser').value;
-  const pass=document.getElementById('loginPass').value;
-  const u=getUsuario(id);
-  const err=document.getElementById('loginError');
-  if(!u || u.senha!==pass){ err.textContent='Senha incorreta.'; return; }
-  err.textContent='';
-  state.session=u;
+
+/* Abre o app após obter state.session */
+function openApp() {
   document.getElementById('loginScreen').classList.add('hidden');
   document.getElementById('app').classList.remove('hidden');
   buildTabs();
   renderAll();
 }
-function logout(){
-  state.session=null;
-  document.getElementById('loginPass').value='';
+
+/* Login via Supabase Auth */
+async function doLogin() {
+  const email = document.getElementById('loginEmail').value.trim();
+  const pass  = document.getElementById('loginPass').value;
+  const err   = document.getElementById('loginError');
+  const btn   = document.getElementById('loginBtn');
+
+  err.textContent = '';
+  if (!email || !pass) { err.textContent = 'Preencha e-mail e senha.'; return; }
+
+  btn.disabled    = true;
+  btn.textContent = 'Entrando…';
+
+  try {
+    const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password: pass });
+    if (error) throw error;
+
+    state.session = await buildSessionFromSupabase(data.user);
+    openApp();
+  } catch (e) {
+    err.textContent = e.message === 'Invalid login credentials'
+      ? 'E-mail ou senha incorretos.'
+      : (e.message || 'Erro ao entrar. Tente novamente.');
+  } finally {
+    btn.disabled    = false;
+    btn.textContent = 'Entrar';
+  }
+}
+
+/* Logout */
+async function logout() {
+  await supabaseClient.auth.signOut();
+  state.session = null;
+  document.getElementById('loginPass').value  = '';
+  document.getElementById('loginEmail').value = '';
   document.getElementById('app').classList.add('hidden');
   document.getElementById('loginScreen').classList.remove('hidden');
-  populateLoginSelect();
 }
 
 /* =====================================================================
@@ -371,6 +463,7 @@ function tabsForSession(){
   if(state.session.tipo==='admin'){
     return [
       {id:'admin-dash', label:'Visão Geral'},
+      {id:'admin-liveatend', label:'Atendimentos (Auvo)'},
       {id:'admin-import', label:'Importar Auvo'},
       {id:'admin-infra', label:'Infrações'},
       {id:'admin-bonus', label:'Bônus e Metas'},
@@ -380,6 +473,7 @@ function tabsForSession(){
   }
   return [
     {id:'tec-dash', label:'Meu Painel'},
+    {id:'tec-liveatend', label:'Meus Atendimentos'},
     {id:'tec-bonus', label:'Bônus e Metas'}
   ];
 }
@@ -428,15 +522,18 @@ function renderAll(){
   if(!state.session) return;
   destroyCharts();
   setActiveTabButton();
+  ensureAtendimentosAutoRefresh();
   const main=document.getElementById('mainArea');
   const fn = {
     'admin-dash': renderAdminDash,
+    'admin-liveatend': renderAtendimentosAuvo,
     'admin-import': renderAdminImport,
     'admin-infra': renderAdminInfra,
     'admin-bonus': renderBonusMetas,
     'admin-config': renderAdminConfig,
     'admin-contas': renderAdminContas,
     'tec-dash': renderTecDash,
+    'tec-liveatend': renderAtendimentosAuvo,
     'tec-bonus': renderBonusMetas
   }[state.activeTab];
   main.innerHTML='';
@@ -1101,9 +1198,193 @@ function renderTecDash(main){
 }
 
 /* =====================================================================
-   INICIALIZAÇÃO
+   ATENDIMENTOS (AUVO) — leitura automática da planilha publicada
 ===================================================================== */
-populateLoginSelect();
+let atendimentosAutoTimer = null;
+function ensureAtendimentosAutoRefresh(){
+  const ativo = state.activeTab==='admin-liveatend' || state.activeTab==='tec-liveatend';
+  if(ativo && !atendimentosAutoTimer && ATENDIMENTOS_SHEET_CSV_URL){
+    atendimentosAutoTimer = setInterval(()=>carregarAtendimentosSheet(), ATENDIMENTOS_AUTO_REFRESH_MS);
+  }
+  if(!ativo && atendimentosAutoTimer){ clearInterval(atendimentosAutoTimer); atendimentosAutoTimer=null; }
+}
+
+function normTxt(s){
+  return String(s||'').normalize('NFD').replace(/\p{Mn}/gu,'').toLowerCase().trim();
+}
+function getColByKeywords(headers, keywords){
+  return headers.find(h=>keywords.some(k=>normTxt(h).includes(k))) || '';
+}
+
+/* Conta atendimentos por técnico no mês, somando todos os tipos de
+   questionário (a planilha publicada só precisa ter Colaborador + Data da
+   tarefa — nenhum dado sensível). */
+function contarAtendimentosSheetPorTecnico_(linhas, headers, mesRef){
+  const colColaborador = getColByKeywords(headers, ['colaborador','tecnico']);
+  const colData = getColByKeywords(headers, ['data da tarefa','data']);
+  const contagem = {};
+  if(!colColaborador || !colData) return contagem;
+  linhas.forEach(l=>{
+    const dataTxt = String(l[colData]||'').trim();
+    if(!dataTxt) return;
+    if(monthKey(parseDateCell(dataTxt)) !== mesRef) return;
+    const nome = String(l[colColaborador]||'').trim();
+    if(!nome) return;
+    const chave = normTxt(nome);
+    if(!contagem[chave]) contagem[chave] = {nome, qtd:0};
+    contagem[chave].qtd++;
+  });
+  return contagem;
+}
+
+async function carregarAtendimentosSheet(){
+  const sheet = state.atendimentosSheet;
+  if(!ATENDIMENTOS_SHEET_CSV_URL){ sheet.erro='not_configured'; return; }
+  if(sheet.carregando) return;
+  sheet.carregando = true; sheet.erro='';
+  renderAll();
+  try{
+    const separador = ATENDIMENTOS_SHEET_CSV_URL.includes('?') ? '&' : '?';
+    const resp = await fetch(ATENDIMENTOS_SHEET_CSV_URL + separador + 'cachebust=' + Date.now());
+    if(!resp.ok) throw new Error('HTTP ' + resp.status);
+    const text = await resp.text();
+    const {headers, rows} = parseCSVText(text);
+    if(!headers.length) throw new Error('A planilha publicada voltou vazia ou em formato inválido.');
+    sheet.headers = headers;
+    sheet.linhas = rows;
+    sheet.atualizadoEm = new Date();
+  }catch(err){
+    sheet.erro = err.message || 'Falha ao buscar a planilha.';
+  }finally{
+    sheet.carregando = false;
+    renderAll();
+  }
+}
+
+function renderAtendimentosAuvo(main){
+  const isAdmin = state.session.tipo==='admin';
+  const sheet = state.atendimentosSheet;
+
+  if(!ATENDIMENTOS_SHEET_CSV_URL){
+    main.innerHTML = `
+    <div class="section-head"><h2>Atendimentos (Auvo)</h2></div>
+    <div class="card">
+      <div class="empty-state">
+        Esta aba ainda não foi conectada à planilha do Auvo.<br><br>
+        No Google Sheets: crie uma aba só com as colunas <b>Colaborador</b> e
+        <b>Data da tarefa</b> (junte aí as linhas de todos os tipos de atendimento) e publique
+        essa aba em <b>Arquivo → Compartilhar → Publicar na Web</b> no formato <b>CSV</b>.
+        Cole o link publicado na constante <span class="mono">ATENDIMENTOS_SHEET_CSV_URL</span>
+        no topo do arquivo <span class="mono">index.html</span>.
+      </div>
+    </div>`;
+    return;
+  }
+
+  if(!sheet.atualizadoEm && !sheet.carregando && sheet.erro!=='not_configured' && !sheet.erro){
+    carregarAtendimentosSheet();
+  }
+
+  const atualizadoTxt = sheet.atualizadoEm
+    ? sheet.atualizadoEm.toLocaleString('pt-BR')
+    : (sheet.carregando ? 'Carregando…' : 'Ainda não carregado');
+
+  main.innerHTML = `
+  <div class="section-head">
+    <h2>${isAdmin ? 'Atendimentos (Auvo)' : 'Meus atendimentos'}</h2>
+    <div class="toolbar">
+      ${mesSelectorHTML()}
+      <span class="small">Atualizado em: ${atualizadoTxt}</span>
+      <button class="btn" ${sheet.carregando?'disabled':''} onclick="carregarAtendimentosSheet()">${sheet.carregando?'Atualizando…':'Atualizar agora'}</button>
+    </div>
+  </div>
+  ${sheet.erro && sheet.erro!=='not_configured' ? `<div class="card section"><p class="danger-text small" style="margin:0;">Não foi possível carregar a planilha: ${sheet.erro}</p></div>` : ''}
+  <div id="atendAuvoContagem"></div>
+  <p class="small" style="margin-top:8px;color:var(--muted);">
+    Contagem de atendimentos (todos os tipos de questionário) vinda da planilha alimentada
+    pela integração Auvo. O script atualiza a planilha uma vez por dia; esta tela também
+    busca a planilha automaticamente a cada 5 minutos enquanto esta aba estiver aberta.
+  </p>`;
+
+  renderAtendimentosContagem();
+}
+
+function renderAtendimentosContagem(){
+  const wrap=document.getElementById('atendAuvoContagem'); if(!wrap) return;
+  const isAdmin = state.session.tipo==='admin';
+  const sheet = state.atendimentosSheet;
+
+  if(!sheet.headers || !sheet.headers.length){
+    wrap.innerHTML = `<div class="card"><div class="empty-state">${sheet.carregando?'Carregando atendimentos…':'Nenhum dado carregado ainda.'}</div></div>`;
+    return;
+  }
+
+  const contagem = contarAtendimentosSheetPorTecnico_(sheet.linhas, sheet.headers, state.mesRef);
+
+  if(!isAdmin){
+    const item = contagem[normTxt(state.session.nome)];
+    wrap.innerHTML = `<div class="grid grid-4">
+      <div class="card"><h3>Atendimentos no mês (Auvo)</h3>
+        <div class="stat">${item ? item.qtd : 0}</div>
+        <div class="stat-sub">${fmtMonthLabel(state.mesRef)} — todos os tipos de atendimento</div>
+      </div>
+    </div>`;
+    return;
+  }
+
+  const linhas = Object.values(contagem).sort((a,b)=>b.qtd-a.qtd);
+  wrap.innerHTML = `<div class="card table-wrap"><table>
+    <thead><tr><th>Técnico</th><th class="num">Atendimentos no mês</th></tr></thead>
+    <tbody>${linhas.length ? linhas.map(l=>`<tr><td>${l.nome}</td><td class="num">${l.qtd}</td></tr>`).join('')
+      : `<tr><td colspan="2" class="empty-state">Nenhum atendimento encontrado para ${fmtMonthLabel(state.mesRef)}.</td></tr>`}</tbody>
+  </table></div>`;
+}
+
+/* =====================================================================
+   SUPABASE — cliente (somente Publishable Key / anon key)
+===================================================================== */
+const SUPABASE_URL  = 'https://blzlswpqaivadqzhwbjm.supabase.co';
+const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJsemxzd3BxYWl2YWRxemh3YmptIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc2NjcwNTksImV4cCI6MjEwMzI0MzA1OX0.ma-XTBRt_N1wr9dD8-6V0fiUMiE25OK8lisAltPVuew';
+const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+
+/* =====================================================================
+   INICIALIZAÇÃO — restaurar sessão Supabase existente (ex: após F5)
+===================================================================== */
+(async () => {
+  // Tenta recuperar sessão já autenticada (token no storage do navegador)
+  const { data: { session } } = await supabaseClient.auth.getSession();
+  if (session?.user) {
+    try {
+      state.session = await buildSessionFromSupabase(session.user);
+      openApp();
+    } catch (e) {
+      // Perfil inválido ou desativado — força logout limpo
+      await supabaseClient.auth.signOut();
+    }
+  }
+
+  // Listener: mantém state.session sincronizado com eventos de auth
+  // (token renovado, expirado, logout em outra aba, etc.)
+  supabaseClient.auth.onAuthStateChange(async (event, session) => {
+    if (event === 'SIGNED_IN' && session?.user && !state.session) {
+      try {
+        state.session = await buildSessionFromSupabase(session.user);
+        openApp();
+      } catch (e) {
+        await supabaseClient.auth.signOut();
+      }
+    }
+    if (event === 'SIGNED_OUT') {
+      state.session = null;
+      document.getElementById('app').classList.add('hidden');
+      document.getElementById('loginScreen').classList.remove('hidden');
+    }
+    if (event === 'TOKEN_REFRESHED' && session?.user && state.session) {
+      // Sessão renovada automaticamente — não precisa reabrir o app,
+      // apenas garante que o usuário continua logado
+    }
+  });
+})();
 </script>
 </body>
 </html>

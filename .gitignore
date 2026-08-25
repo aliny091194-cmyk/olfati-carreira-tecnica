@@ -1,0 +1,22 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+
+# Editor
+.vscode/settings.json
+*.swp
+*.swo
+
+# Logs e temporários
+*.log
+*.tmp
+
+# Variáveis de ambiente (nunca versionar)
+.env
+.env.local
+.env.*.local
+
+# Dependências (não há por enquanto, mas previne acidentes futuros)
+node_modules/

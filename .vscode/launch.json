@@ -1,0 +1,16 @@
+{
+    "configurations": [
+        {
+            "type": "chrome",
+            "name": "file:///Users/alinycardoso/Downloads/acompanhamento-olfati-projeto/index.html",
+            "request": "launch",
+            "url": "file:///Users/alinycardoso/Downloads/acompanhamento-olfati-projeto/index.html"
+        },
+        {
+            "type": "node-terminal",
+            "name": "JavaScript Debug Terminal",
+            "request": "launch",
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}
