@@ -375,12 +375,7 @@ async function buildSessionFromSupabase(supabaseUser) {
   if (tipo === 'tecnico') {
     const { data: tec, error: tecErr } = await supabaseClient
       .from('technicians')
-      .select(`
-        id,
-        admission_date,
-        cycle_start,
-        career_levels ( key )
-      `)
+      .select('id, admission_date, cycle_start, current_level_id')
       .eq('id', uid)
       .single();
 
@@ -388,9 +383,9 @@ async function buildSessionFromSupabase(supabaseUser) {
       throw new Error('Dados do técnico não encontrados. Contate o administrador.');
     }
 
-    nivel        = tec.career_levels?.key ?? 'junior';
-    dataAdmissao = tec.admission_date  ?? todayISO();
-    cicloInicio  = tec.cycle_start     ?? todayISO();
+    nivel        = tec.current_level_id ?? 'junior';
+    dataAdmissao = tec.admission_date   ?? todayISO();
+    cicloInicio  = tec.cycle_start      ?? todayISO();
   }
 
   // 3. Montar objeto no formato esperado pelo código existente
@@ -423,7 +418,7 @@ async function carregarTecnicosSupabase() {
   if (ids.length) {
     const { data, error: tecErr } = await supabaseClient
       .from('technicians')
-      .select('id, admission_date, cycle_start, career_levels ( key )')
+      .select('id, admission_date, cycle_start, current_level_id')
       .in('id', ids);
     if (tecErr) throw tecErr;
     tecnicosDb = data || [];
@@ -438,7 +433,7 @@ async function carregarTecnicosSupabase() {
       tipo: 'tecnico',
       nome: p.display_name || '(sem nome)',
       ativo: p.is_active !== false,
-      nivel: t.career_levels?.key || 'junior',
+      nivel: t.current_level_id || 'junior',
       dataAdmissao: t.admission_date || todayISO(),
       cicloInicio: t.cycle_start || todayISO()
     };
@@ -1159,7 +1154,7 @@ function renderAdminContas(main){
   const avisoSupabase = state.tecnicosOrigem === 'supabase' ? `
   <div class="note-box" style="margin-bottom:14px;">
     Login e senha desses técnicos são gerenciados no Supabase (Authentication), não aqui.
-    Nome/nível editados nesta tela ainda são só locais — não gravam de volta no Supabase.
+    Nome, nível e status ficam só nesta tela até você clicar em <b>Salvar no Supabase</b>.
   </div>` : '';
 
   main.innerHTML = `
@@ -1187,7 +1182,12 @@ function renderAdminContas(main){
     }).join('')}
     </tbody></table>
   </div>
-  ${state.tecnicosOrigem === 'ficticio' ? `<div class="note-box" style="margin-top:14px;">As senhas são exibidas em texto para fins de demonstração (sem backend real). Em produção, use hash (bcrypt) e nunca exiba a senha após a criação.</div>` : ''}
+  ${state.tecnicosOrigem === 'ficticio'
+    ? `<div class="note-box" style="margin-top:14px;">As senhas são exibidas em texto para fins de demonstração (sem backend real). Em produção, use hash (bcrypt) e nunca exiba a senha após a criação.</div>`
+    : `<div style="margin-top:14px;">
+        <button class="btn btn-primary" style="width:auto;" onclick="salvarTecnicosSupabase()" id="btnSalvarTecnicos">Salvar no Supabase</button>
+        <span id="salvarTecnicosStatus" class="small" style="margin-left:10px;"></span>
+      </div>`}
   `;
 }
 function renomearTecnico(id, nome){ getUsuario(id).nome = nome || getUsuario(id).nome; renderAll(); }
@@ -1197,6 +1197,57 @@ function mudarNivel(id, nivel){
 }
 function redefinirSenha(id){ getUsuario(id).senha = genSenha(); renderAll(); }
 function toggleAtivo(id){ const u=getUsuario(id); u.ativo=!u.ativo; renderAll(); }
+
+/* Grava nome, nível, ciclo e status dos técnicos reais de volta no Supabase.
+   Só existe quando state.tecnicosOrigem === 'supabase' (técnicos fictícios
+   não têm linha correspondente em profiles/technicians para atualizar). */
+async function salvarTecnicosSupabase(){
+  const btn = document.getElementById('btnSalvarTecnicos');
+  const status = document.getElementById('salvarTecnicosStatus');
+  if (btn) btn.disabled = true;
+  if (status) { status.textContent = 'Salvando…'; status.style.color = 'var(--text-secondary)'; }
+
+  try {
+    for (const u of tecnicos()) {
+      const { data: perfilData, error: perfilErr } = await supabaseClient
+        .from('profiles')
+        .update({ display_name: u.nome, is_active: u.ativo })
+        .eq('id', u.id)
+        .select();
+      if (perfilErr) throw perfilErr;
+      if (!perfilData || !perfilData.length) {
+        throw new Error(
+          'Nenhuma linha de profiles foi atualizada para ' + u.nome +
+          ' — falta a policy de UPDATE para admin no Supabase.'
+        );
+      }
+
+      const { data: tecData, error: tecErr } = await supabaseClient
+        .from('technicians')
+        .update({ current_level_id: u.nivel, cycle_start: u.cicloInicio })
+        .eq('id', u.id)
+        .select();
+      if (tecErr) throw tecErr;
+      if (!tecData || !tecData.length) {
+        throw new Error(
+          'Nenhuma linha de technicians foi atualizada para ' + u.nome +
+          ' — falta a policy de UPDATE para admin no Supabase.'
+        );
+      }
+    }
+    if (status) {
+      status.textContent = 'Salvo às ' + new Date().toLocaleTimeString('pt-BR');
+      status.style.color = 'var(--good)';
+    }
+  } catch (e) {
+    if (status) {
+      status.textContent = 'Erro ao salvar: ' + (e.message || e);
+      status.style.color = 'var(--critical)';
+    }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
 
 /* =====================================================================
    PAINEL DO TÉCNICO
