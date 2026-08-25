@@ -239,7 +239,8 @@ const state = {
   filtroPainel: {nivel:'', tecnico:''},
   activeTab: null,
   pendingImport: null,
-  atendimentosSheet: { linhas: [], headers: [], atualizadoEm: null, carregando: false, erro: '' }
+  atendimentosSheet: { linhas: [], headers: [], atualizadoEm: null, carregando: false, erro: '' },
+  tecnicosOrigem: null // 'supabase' | 'ficticio' — setado ao carregar o app como admin
 };
 
 /* =====================================================================
@@ -443,7 +444,19 @@ async function carregarTecnicosSupabase() {
     };
   });
 
-  state.usuarios = [state.session].concat(reais);
+  if (reais.length) {
+    state.usuarios = [state.session].concat(reais);
+    state.tecnicosOrigem = 'supabase';
+  } else {
+    // Nenhum técnico real cadastrado no Supabase ainda: usa os 8 fictícios
+    // locais só como ponto de partida para o admin editar nome/nível.
+    // Editar aqui NÃO cria conta de login real — isso exige cadastrar o
+    // técnico de verdade no Supabase (Authentication + tabelas profiles/technicians).
+    state.usuarios = [state.session].concat(
+      defaultUsuarios().filter(u => u.tipo === 'tecnico')
+    );
+    state.tecnicosOrigem = 'ficticio';
+  }
 }
 
 /* Abre o app após obter state.session */
@@ -1134,28 +1147,47 @@ function salvarConfig(){
    CONTAS
 ===================================================================== */
 function renderAdminContas(main){
+  const avisoFicticio = state.tecnicosOrigem === 'ficticio' ? `
+  <div class="note-box" style="margin-bottom:14px;border-color:var(--warning);">
+    <b>Nenhum técnico real cadastrado no Supabase ainda.</b> A lista abaixo é só um rascunho local
+    (8 vagas fictícias) para você organizar nomes e níveis antes de cadastrar de verdade. Editar aqui
+    <b>não cria login real</b> — some ao recarregar a página. Para o técnico conseguir entrar no site,
+    crie a conta dele no Supabase (Authentication → Add user) e as linhas correspondentes nas tabelas
+    <span class="mono">profiles</span> (role='technician') e <span class="mono">technicians</span>.
+  </div>` : '';
+
+  const avisoSupabase = state.tecnicosOrigem === 'supabase' ? `
+  <div class="note-box" style="margin-bottom:14px;">
+    Login e senha desses técnicos são gerenciados no Supabase (Authentication), não aqui.
+    Nome/nível editados nesta tela ainda são só locais — não gravam de volta no Supabase.
+  </div>` : '';
+
   main.innerHTML = `
   <div class="section-head"><h2>Acessos dos Técnicos</h2></div>
   <p class="small" style="margin-top:-6px;">Renomeie os técnicos com os nomes reais da equipe, defina o nível de cada um e gerencie login/senha de acesso.</p>
+  ${avisoFicticio}${avisoSupabase}
   <div class="card table-wrap">
     <table><thead><tr><th>Nome</th><th>Login</th><th>Nível</th><th>Senha</th><th>Status</th><th></th></tr></thead>
     <tbody>
-    ${tecnicos().map(u=>`<tr>
+    ${tecnicos().map(u=>{
+      const ficticio = typeof u.login === 'string';
+      return `<tr>
       <td><input style="width:140px" value="${u.nome}" onchange="renomearTecnico('${u.id}', this.value)"></td>
-      <td class="mono">${u.login}</td>
+      <td class="mono">${ficticio ? u.login : '<span class="small" style="color:var(--muted)">Supabase</span>'}</td>
       <td><select onchange="mudarNivel('${u.id}', this.value)">
         ${Object.values(state.niveis).map(n=>`<option value="${n.key}" ${u.nivel===n.key?'selected':''}>${n.nome}</option>`).join('')}
       </select></td>
-      <td class="mono">${u.senha}</td>
+      <td class="mono">${ficticio ? u.senha : '—'}</td>
       <td>${u.ativo?'<span class="pill good">Ativa</span>':'<span class="pill bad">Desativada</span>'}</td>
       <td>
-        <button class="link-btn" onclick="redefinirSenha('${u.id}')">redefinir senha</button> ·
+        ${ficticio ? `<button class="link-btn" onclick="redefinirSenha('${u.id}')">redefinir senha</button> · ` : ''}
         <button class="link-btn ${u.ativo?'danger-text':''}" onclick="toggleAtivo('${u.id}')">${u.ativo?'desativar':'ativar'}</button>
       </td>
-    </tr>`).join('')}
+    </tr>`;
+    }).join('')}
     </tbody></table>
   </div>
-  <div class="note-box" style="margin-top:14px;">As senhas são exibidas em texto para fins de demonstração (sem backend real). Em produção, use hash (bcrypt) e nunca exiba a senha após a criação.</div>
+  ${state.tecnicosOrigem === 'ficticio' ? `<div class="note-box" style="margin-top:14px;">As senhas são exibidas em texto para fins de demonstração (sem backend real). Em produção, use hash (bcrypt) e nunca exiba a senha após a criação.</div>` : ''}
   `;
 }
 function renomearTecnico(id, nome){ getUsuario(id).nome = nome || getUsuario(id).nome; renderAll(); }
