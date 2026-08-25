@@ -179,15 +179,13 @@ canvas{max-width:100%;}
 const CATEGORICAL = ['#2a78d6','#eb6834','#1baf7a','#eda100','#e87ba4','#008300','#4a3aa7','#e34948'];
 
 /* URL do CSV publicado do Google Sheets usado para contar atendimentos por técnico.
-   Esta tela só CONTA linhas por técnico/mês — não precisa e não deve expor CPF/CNPJ,
-   cliente ou qualquer outro dado sensível. A aba publicada só precisa ter 2 colunas:
-   "Colaborador" e "Data da tarefa". Se você tem mais de um tipo de questionário (ex.:
-   manutenção e refil), junte as linhas de todos eles nessa mesma aba antes de publicar —
-   todos contam igual, sem distinção de tipo.
-   Como configurar: crie uma aba nova só com essas 2 colunas, copie/cole os dados de cada
-   fonte, depois Arquivo → Compartilhar → Publicar na Web → selecione essa aba → CSV → Publicar.
-   Cole aqui o link gerado. Deixe vazio para manter esta aba desativada. */
-const ATENDIMENTOS_SHEET_CSV_URL = '';
+   Esta tela só CONTA linhas por técnico/mês (usa apenas as colunas "Colaborador" e
+   "Data da tarefa" do CSV; qualquer outra coluna presente é ignorada pelo código).
+   IMPORTANTE: por decisão explícita do responsável pelo projeto, esta URL aponta para
+   a aba BASE_QUESTIONARIO publicada por inteiro (não a versão filtrada PAINEL_TECNICOS),
+   o que deixa CPF/CNPJ e dados de cliente publicamente acessíveis a quem tiver o link,
+   mesmo esse app não exibindo essas colunas. Deixe vazio para desativar esta aba. */
+const ATENDIMENTOS_SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vS2DCfw84Cs_7pXYf-QUqNcJM5m-dW39T_W7BZXsD_AJ7UmVbrJhmFep2hCwWUFQTZ95ZKW6KeJEooV/pub?gid=136073013&single=true&output=csv';
 const ATENDIMENTOS_AUTO_REFRESH_MS = 5 * 60 * 1000; // 5 minutos
 
 function defaultNiveis(){
