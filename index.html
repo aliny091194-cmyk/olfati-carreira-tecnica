@@ -247,7 +247,13 @@ const state = {
    HELPERS DE CÁLCULO
 ===================================================================== */
 function tecnicos(){ return state.usuarios.filter(u=>u.tipo==='tecnico'); }
-function getUsuario(id){ return state.usuarios.find(u=>u.id===id); }
+function getUsuario(id){
+  // state.usuarios só é populado com a equipe real quando quem loga é admin
+  // (carregarTecnicosSupabase). Pra um técnico logado direto, ele mesmo não
+  // está lá — cai no próprio state.session, que já tem os dados certos.
+  return state.usuarios.find(u=>u.id===id) ||
+    (state.session && state.session.id===id ? state.session : undefined);
+}
 function nivelDe(u){ return state.niveis[u.nivel]; }
 
 function monthKey(iso){ return iso.slice(0,7); }
@@ -258,7 +264,27 @@ function fmtMonthLabel(mk){
 }
 function daysInMonth(mk){ const [y,m]=mk.split('-').map(Number); return new Date(y,m,0).getDate(); }
 
+/* Fonte dos atendimentos do painel: se a planilha do Auvo já foi carregada,
+   ela é a fonte de verdade pra todo mundo (substitui a importação manual).
+   Antes dela carregar (ou se não estiver configurada), cai no import manual. */
 function atendimentosDoMes(tecnicoId, mk){
+  const sheet = state.atendimentosSheet;
+  if (sheet.headers && sheet.headers.length) {
+    const u = getUsuario(tecnicoId);
+    const chaveAlvo = normTxt(u ? (u.auvoNome || u.nome) : '');
+    const colColaborador = getColByKeywords(sheet.headers, ['colaborador','tecnico']);
+    const colData = getColByKeywords(sheet.headers, ['data da tarefa','data']);
+    if (chaveAlvo && colColaborador && colData) {
+      return sheet.linhas
+        .filter(l => {
+          const dataTxt = String(l[colData] || '').trim();
+          if (!dataTxt) return false;
+          if (monthKey(parseDateCell(dataTxt)) !== mk) return false;
+          return normTxt(l[colColaborador]) === chaveAlvo;
+        })
+        .map(l => ({ data: parseDateCell(l[colData]) }));
+    }
+  }
   return state.atendimentos.filter(a=>a.tecnicoId===tecnicoId && monthKey(a.data)===mk);
 }
 function qtdAtendimentosMes(tecnicoId, mk){ return atendimentosDoMes(tecnicoId, mk).length; }
@@ -473,6 +499,12 @@ async function openApp() {
   document.getElementById('app').classList.remove('hidden');
   buildTabs();
   renderAll();
+  // Carrega a planilha do Auvo já no login (não só ao abrir a aba Atendimentos),
+  // pra Meu Painel/Visão Geral já nascerem com dados reais. Ela mesma chama
+  // renderAll() de novo quando terminar.
+  if (ATENDIMENTOS_SHEET_CSV_URL && !state.atendimentosSheet.atualizadoEm && !state.atendimentosSheet.carregando) {
+    carregarAtendimentosSheet();
+  }
 }
 
 /* Login via Supabase Auth */
