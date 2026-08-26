@@ -7,63 +7,70 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 :root{
   color-scheme: light;
-  --surface-1:      #fcfcfb;
-  --surface-2:      #ffffff;
-  --page:           #f4f4f1;
-  --text-primary:   #0b0b0b;
-  --text-secondary: #52514e;
-  --muted:          #898781;
-  --grid:           #e1e0d9;
-  --baseline:       #c3c2b7;
-  --border:         rgba(11,11,11,0.10);
-  --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a; --series-4: #eda100;
-  --series-5: #e87ba4; --series-6: #008300; --series-7: #4a3aa7; --series-8: #e34948;
+  /* Identidade visual Olfati — extraída de olfati.com.br */
+  --brand-dark:     #141914; /* Verde Quase Preto — seções imersivas */
+  --brand-cream:    #ECE0C3; /* Bege Areia — texto sobre fundo escuro */
+  --surface-1:      #FFFBF1; /* Creme — fundo alternativo claro (inputs) */
+  --surface-2:      #FFFFFF; /* Branco — cards */
+  --page:           #F7F7F7; /* Cinza Claro — fundo de seção neutro */
+  --text-primary:   #3E3E3E; /* Cinza Chumbo — corpo de texto padrão */
+  --text-secondary: #6B6A61;
+  --muted:          #8C8B83;
+  --grid:           #E7E3D6;
+  --baseline:       #CFC9B7;
+  --border:         rgba(1,0,0,0.10);
+  --series-1: #5F7F65; --series-2: #4C6651; --series-3: #4C6651; --series-4: #C9A227;
+  --series-5: #8C6B3F; --series-6: #141914; --series-7: #141914; --series-8: #A8A296;
   --good: #0ca30c; --warning: #b8790f; --serious: #c85a34; --critical: #d03b3b;
   --radius: 10px;
 }
 *{box-sizing:border-box;}
-body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--page);color:var(--text-primary);}
+body{margin:0;font-family:'Montserrat',system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--page);color:var(--text-primary);}
 button{font-family:inherit;cursor:pointer;}
 input,select{font-family:inherit;}
 .hidden{display:none !important;}
 
 /* ---------- Login ---------- */
-#loginScreen{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;}
+#loginScreen{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:var(--brand-dark);}
 .login-card{background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius);padding:32px;max-width:400px;width:100%;box-shadow:0 4px 24px rgba(0,0,0,0.06);}
-.login-card h1{font-size:20px;margin:0 0 4px;}
+.login-card h1{font-size:20px;font-weight:800;margin:0 0 4px;}
+.login-card h1 span{color:var(--series-1);}
 .login-card .sub{color:var(--text-secondary);font-size:13px;margin:0 0 24px;}
 .field{margin-bottom:14px;}
 .field label{display:block;font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:5px;}
 .field select,.field input{width:100%;padding:9px 10px;border:1px solid var(--baseline);border-radius:7px;font-size:14px;background:var(--surface-1);color:var(--text-primary);}
 .btn{padding:9px 16px;border-radius:7px;border:1px solid var(--baseline);background:var(--surface-1);font-size:13px;font-weight:600;color:var(--text-primary);}
 .btn:hover{background:var(--grid);}
-.btn-primary{background:var(--series-1);border-color:var(--series-1);color:#fff;width:100%;padding:11px;font-size:14px;}
-.btn-primary:hover{background:#2568bd;}
+.btn-primary{background:var(--series-1);border-color:var(--series-1);color:#fff;width:100%;padding:12px 26px;font-size:14px;font-weight:600;border-radius:999px;}
+.btn-primary:hover{background:var(--series-2);border-color:var(--series-2);}
 .login-note{margin-top:16px;font-size:11.5px;color:var(--muted);line-height:1.5;background:var(--page);padding:10px 12px;border-radius:7px;}
 
 /* ---------- App shell ---------- */
 #app{min-height:100vh;}
-header.topbar{background:var(--surface-2);border-bottom:1px solid var(--border);padding:12px 18px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;position:sticky;top:0;z-index:20;}
-.brand{font-weight:700;font-size:15px;letter-spacing:.2px;flex:none;}
+header.topbar{background:var(--brand-dark);color:var(--brand-cream);border-bottom:1px solid rgba(236,224,195,0.12);padding:12px 18px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;position:sticky;top:0;z-index:20;}
+.brand{font-weight:800;font-size:15px;letter-spacing:.2px;flex:none;color:var(--brand-cream);}
 .brand span{color:var(--series-1);}
 .tabs{display:flex;gap:4px;flex:1 1 auto;flex-wrap:wrap;min-width:0;}
-.tab-btn{border:none;background:transparent;padding:8px 12px;border-radius:7px;font-size:13px;color:var(--text-secondary);font-weight:600;white-space:nowrap;}
-.tab-btn.active{background:var(--page);color:var(--text-primary);}
-.tab-btn:hover{color:var(--text-primary);}
-.who{display:flex;align-items:center;gap:10px;font-size:13px;flex:none;margin-left:auto;}
+.tab-btn{border:none;background:transparent;padding:8px 12px;border-radius:7px;font-size:13px;color:rgba(236,224,195,0.65);font-weight:600;white-space:nowrap;}
+.tab-btn.active{background:var(--brand-cream);color:var(--brand-dark);}
+.tab-btn:hover{color:var(--brand-cream);}
+.who{display:flex;align-items:center;gap:10px;font-size:13px;flex:none;margin-left:auto;color:var(--brand-cream);}
 .who .name{font-weight:600;}
 @media (max-width:640px){
   header.topbar{padding:10px 14px;}
-  .tabs{order:3;flex-basis:100%;border-top:1px solid var(--grid);padding-top:8px;margin-top:2px;}
+  .tabs{order:3;flex-basis:100%;border-top:1px solid rgba(236,224,195,0.12);padding-top:8px;margin-top:2px;}
   .who{margin-left:0;}
 }
 .badge{padding:2px 9px;border-radius:20px;font-size:11px;font-weight:700;color:#fff;}
 .badge.junior{background:var(--series-4);color:#1a1200;}
 .badge.pleno{background:var(--series-1);}
-.badge.senior{background:var(--series-7);}
+.badge.senior{background:var(--series-7);color:var(--brand-cream);}
 main{max-width:1180px;margin:0 auto;padding:22px;}
 .panel-title{display:none;}
 .tabpanel{display:none;}
@@ -176,7 +183,8 @@ canvas{max-width:100%;}
 /* =====================================================================
    ESTADO GLOBAL (em memória — sem localStorage)
 ===================================================================== */
-const CATEGORICAL = ['#2a78d6','#eb6834','#1baf7a','#eda100','#e87ba4','#008300','#4a3aa7','#e34948'];
+/* Espelha as variáveis --series-1..8 do CSS (identidade Olfati). */
+const CATEGORICAL = ['#5F7F65','#4C6651','#4C6651','#C9A227','#8C6B3F','#141914','#141914','#A8A296'];
 
 /* URL do CSV publicado do Google Sheets usado para contar atendimentos por técnico.
    Esta tela só CONTA linhas por técnico/mês (usa apenas as colunas "Colaborador" e
@@ -703,7 +711,7 @@ function renderAdminDash(main){
   safeChart('ranking', 'chartRanking', {
     type:'bar',
     data:{labels:labelsRank, datasets:[{label:'Equipamentos atendidos', data:dataRank, backgroundColor:CATEGORICAL[0], borderRadius:4, maxBarThickness:26}]},
-    options:{indexAxis:'y', plugins:{legend:{display:false}}, scales:{x:{grid:{color:'#e1e0d9'}}, y:{grid:{display:false}}}}
+    options:{indexAxis:'y', plugins:{legend:{display:false}}, scales:{x:{grid:{color:'#E7E3D6'}}, y:{grid:{display:false}}}}
   });
 
   const nvArr = Object.values(state.niveis);
@@ -714,7 +722,7 @@ function renderAdminDash(main){
       {label:'Potencial c/ meta', data:nvArr.map(n=>n.salarioBase+n.meta*n.valorEquip+n.bonusMeta), backgroundColor:CATEGORICAL[2], borderRadius:4},
       {label:'Potencial c/ supermeta', data:nvArr.map(n=>n.salarioBase+n.supermeta*n.valorEquip+n.bonusSupermeta), backgroundColor:CATEGORICAL[3], borderRadius:4}
     ]},
-    options:{plugins:{legend:{position:'bottom', labels:{boxWidth:10,font:{size:11}}}}, scales:{y:{grid:{color:'#e1e0d9'}}, x:{grid:{display:false}}}}
+    options:{plugins:{legend:{position:'bottom', labels:{boxWidth:10,font:{size:11}}}}, scales:{y:{grid:{color:'#E7E3D6'}}, x:{grid:{display:false}}}}
   });
 }
 
@@ -1378,7 +1386,7 @@ function renderTecDash(main){
   safeChart('diario', 'chartDiario', {
     type:'bar',
     data:{labels:Array.from({length:dim},(_,i)=>i+1), datasets:[{label:'Atendimentos', data:porDia, backgroundColor:CATEGORICAL[0], borderRadius:4, maxBarThickness:18}]},
-    options:{plugins:{legend:{display:false}}, scales:{x:{grid:{display:false}}, y:{grid:{color:'#e1e0d9'}, beginAtZero:true, ticks:{precision:0}}}}
+    options:{plugins:{legend:{display:false}}, scales:{x:{grid:{display:false}}, y:{grid:{color:'#E7E3D6'}, beginAtZero:true, ticks:{precision:0}}}}
   });
 }
 
