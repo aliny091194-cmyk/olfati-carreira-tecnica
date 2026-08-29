@@ -256,7 +256,7 @@ const state = {
   session: null,    // usuario logado
   mesRef: todayISO().slice(0,7),
   sortPainel: {col:'equipamentos', dir:'desc'},
-  filtroPainel: {nivel:'', tecnico:''},
+  filtroPainel: {nivel:'', tecnico:'', unidade:''},
   activeTab: null,
   pendingImport: null,
   atendimentosSheet: {
@@ -291,9 +291,9 @@ function daysInMonth(mk){ const [y,m]=mk.split('-').map(Number); return new Date
    ela é a fonte de verdade pra todo mundo (substitui a importação manual).
    Antes dela carregar (ou se não estiver configurada), cai no import manual. */
 function atendimentosDoMes(tecnicoId, mk){
-  const sheet = state.atendimentosSheet;
-  if (sheet.headers && sheet.headers.length) {
-    const u = getUsuario(tecnicoId);
+  const u = getUsuario(tecnicoId);
+  const sheet = state.atendimentosSheet[u ? (u.unidade || 'GYN') : 'GYN'];
+  if (sheet && sheet.headers && sheet.headers.length) {
     const chaveAlvo = normTxt(u ? (u.auvoNome || u.nome) : '');
     const colColaborador = getColByKeywords(sheet.headers, ['colaborador','tecnico']);
     const colData = getColByKeywords(sheet.headers, ['data da tarefa','data']);
@@ -676,9 +676,13 @@ function mesSelectorHTML(){
 /* =====================================================================
    PAINEL ADMIN — VISÃO GERAL
 ===================================================================== */
+const UNIDADE_COR = { GYN: '#5F7F65', BSB: '#C9A227' };
+function corUnidade(key){ return UNIDADE_COR[key] || '#8C8B83'; }
+
 function renderAdminDash(main){
   const mk=state.mesRef;
-  const tecs=tecnicos().filter(u=>u.ativo);
+  const unidadesComTecnico = [...new Set(tecnicos().map(u=>u.unidade||'GYN'))];
+  const tecs=tecnicos().filter(u=>u.ativo && (!state.filtroPainel.unidade || (u.unidade||'GYN')===state.filtroPainel.unidade));
   const totalAt = tecs.reduce((s,u)=>s+qtdAtendimentosMes(u.id,mk),0);
   const totalRem = tecs.reduce((s,u)=>s+remuneracaoEstimadaMes(u.id,mk),0);
   const totalPen = tecs.reduce((s,u)=>s+penalidadesValorMes(u.id,mk),0);
@@ -687,7 +691,14 @@ function renderAdminDash(main){
   main.innerHTML = `
   <div class="section-head">
     <h2>Visão geral da equipe</h2>
-    <div class="toolbar">${mesSelectorHTML()}</div>
+    <div class="toolbar">
+      ${unidadesComTecnico.length > 1 ? `
+      <select id="filtroUnidadeDash" onchange="state.filtroPainel.unidade=this.value; renderAll();">
+        <option value="">Todas as unidades</option>
+        ${UNIDADES.filter(u=>unidadesComTecnico.includes(u.key)).map(u=>`<option value="${u.key}" ${state.filtroPainel.unidade===u.key?'selected':''}>${u.nome}</option>`).join('')}
+      </select>` : ''}
+      ${mesSelectorHTML()}
+    </div>
   </div>
   <div class="grid grid-4 section">
     <div class="card"><h3>Atendimentos no mês</h3><div class="stat">${totalAt}</div><div class="stat-sub">${tecs.length} técnicos ativos</div></div>
@@ -699,6 +710,13 @@ function renderAdminDash(main){
   <div class="grid grid-2 section">
     <div class="card">
       <h3>Ranking de atendimentos por técnico</h3>
+      ${unidadesComTecnico.length > 1 && !state.filtroPainel.unidade ? `
+      <div style="display:flex;gap:14px;margin-bottom:6px;">
+        ${UNIDADES.filter(u=>unidadesComTecnico.includes(u.key)).map(u=>
+          `<span class="small" style="display:inline-flex;align-items:center;gap:5px;">
+            <span style="width:9px;height:9px;border-radius:50%;background:${corUnidade(u.key)};display:inline-block;"></span>${u.nome}
+          </span>`).join('')}
+      </div>` : ''}
       <canvas id="chartRanking" height="220"></canvas>
     </div>
     <div class="card">
@@ -731,12 +749,19 @@ function renderAdminDash(main){
   renderPainelTempoReal();
   renderCardsResumo();
 
-  // charts
-  const labelsRank = tecs.map(u=>u.nome);
-  const dataRank = tecs.map(u=>qtdAtendimentosMes(u.id,mk));
+  // charts — técnicos agrupados por unidade (mesma unidade fica lado a lado)
+  // e coloridos por unidade, pra Goiânia e Brasília ficarem visualmente
+  // separadas mesmo dentro do mesmo gráfico.
+  const tecsOrdenados = tecs.slice().sort((a,b)=>{
+    const ua=a.unidade||'GYN', ub=b.unidade||'GYN';
+    return ua===ub ? 0 : (ua<ub?-1:1);
+  });
+  const labelsRank = tecsOrdenados.map(u=>u.nome);
+  const dataRank = tecsOrdenados.map(u=>qtdAtendimentosMes(u.id,mk));
+  const coresRank = tecsOrdenados.map(u=>corUnidade(u.unidade||'GYN'));
   safeChart('ranking', 'chartRanking', {
     type:'bar',
-    data:{labels:labelsRank, datasets:[{label:'Equipamentos atendidos', data:dataRank, backgroundColor:CATEGORICAL[0], borderRadius:4, maxBarThickness:26}]},
+    data:{labels:labelsRank, datasets:[{label:'Equipamentos atendidos', data:dataRank, backgroundColor:coresRank, borderRadius:4, maxBarThickness:26}]},
     options:{indexAxis:'y', plugins:{legend:{display:false}}, scales:{x:{grid:{color:'#E7E3D6'}}, y:{grid:{display:false}}}}
   });
 
@@ -761,9 +786,10 @@ function painelRows(){
     const {bonus}=bonusMes(u.id,mk);
     const infTotal=penalidadesValorMes(u.id,mk);
     const liquido=remuneracaoEstimadaMes(u.id,mk);
-    return {id:u.id, nome:u.nome, nivel:nv.nome, nivelKey:nv.key, equipamentos:qtd, produtividade:prod, bonus, infracoes:infTotal, liquido};
+    return {id:u.id, nome:u.nome, nivel:nv.nome, nivelKey:nv.key, unidade:u.unidade||'GYN', equipamentos:qtd, produtividade:prod, bonus, infracoes:infTotal, liquido};
   });
   if(state.filtroPainel.nivel) rows=rows.filter(r=>r.nivelKey===state.filtroPainel.nivel);
+  if(state.filtroPainel.unidade) rows=rows.filter(r=>r.unidade===state.filtroPainel.unidade);
   if(state.filtroPainel.tecnico) rows=rows.filter(r=>r.nome.toLowerCase().includes(state.filtroPainel.tecnico.toLowerCase()));
   const {col,dir}=state.sortPainel;
   rows.sort((a,b)=>{
@@ -785,6 +811,7 @@ function renderPainelTempoReal(){
   tbl.innerHTML = `
     <thead><tr>
       <th onclick="sortPainel('nome')">Técnico${arrow('nome')}</th>
+      <th onclick="sortPainel('unidade')">Unidade${arrow('unidade')}</th>
       <th onclick="sortPainel('nivel')">Nível${arrow('nivel')}</th>
       <th class="num" onclick="sortPainel('equipamentos')">Equip. no mês${arrow('equipamentos')}</th>
       <th class="num" onclick="sortPainel('produtividade')">Produtividade${arrow('produtividade')}</th>
@@ -795,19 +822,22 @@ function renderPainelTempoReal(){
     <tbody>
       ${rows.length ? rows.map(r=>`<tr>
         <td>${r.nome}</td>
+        <td><span class="small" style="display:inline-flex;align-items:center;gap:5px;">
+          <span style="width:8px;height:8px;border-radius:50%;background:${corUnidade(r.unidade)};display:inline-block;"></span>${unidadeNome(r.unidade)}
+        </span></td>
         <td><span class="badge ${r.nivelKey}">${r.nivel.replace('Técnico ','')}</span></td>
         <td class="num">${r.equipamentos}</td>
         <td class="num">${fmtMoney(r.produtividade)}</td>
         <td class="num">${fmtMoney(r.bonus)}</td>
         <td class="num">${fmtMoney(r.infracoes)}</td>
         <td class="num"><b>${fmtMoney(r.liquido)}</b></td>
-      </tr>`).join('') : `<tr><td colspan="7" class="empty-state">Nenhum técnico encontrado com os filtros atuais.</td></tr>`}
+      </tr>`).join('') : `<tr><td colspan="8" class="empty-state">Nenhum técnico encontrado com os filtros atuais.</td></tr>`}
     </tbody>`;
 }
 function exportarPainelCSV(){
   const rows=painelRows();
-  const header=['Técnico','Nível','Equipamentos no mês','Produtividade (R$)','Bônus de meta (R$)','Total infrações (R$)','Total líquido estimado (R$)'];
-  const lines=[header.join(';')].concat(rows.map(r=>[r.nome,r.nivel,r.equipamentos,r.produtividade.toFixed(2),r.bonus.toFixed(2),r.infracoes.toFixed(2),r.liquido.toFixed(2)].join(';')));
+  const header=['Técnico','Unidade','Nível','Equipamentos no mês','Produtividade (R$)','Bônus de meta (R$)','Total infrações (R$)','Total líquido estimado (R$)'];
+  const lines=[header.join(';')].concat(rows.map(r=>[r.nome,unidadeNome(r.unidade),r.nivel,r.equipamentos,r.produtividade.toFixed(2),r.bonus.toFixed(2),r.infracoes.toFixed(2),r.liquido.toFixed(2)].join(';')));
   downloadCSV(lines.join('\n'), `painel_${state.mesRef}.csv`);
 }
 function downloadCSV(content, filename){
@@ -820,13 +850,17 @@ function downloadCSV(content, filename){
 function renderCardsResumo(){
   const wrap=document.getElementById('cardsResumo'); if(!wrap) return;
   const mk=state.mesRef;
-  wrap.innerHTML = tecnicos().filter(u=>u.ativo).map(u=>{
+  const tecs = tecnicos().filter(u=>u.ativo && (!state.filtroPainel.unidade || (u.unidade||'GYN')===state.filtroPainel.unidade));
+  wrap.innerHTML = tecs.map(u=>{
     const nv=nivelDe(u);
     const qtd=qtdAtendimentosMes(u.id,mk);
     const pct=Math.min(100, Math.round(qtd/nv.meta*100));
     const sp=statusPromocao(u.id,mk);
     return `<div class="card">
       <h3>${u.nome} <span class="badge ${nv.key}" style="float:right;">${nv.nome.replace('Técnico ','')}</span></h3>
+      <div class="small" style="display:inline-flex;align-items:center;gap:5px;margin-top:-6px;margin-bottom:6px;">
+        <span style="width:8px;height:8px;border-radius:50%;background:${corUnidade(u.unidade||'GYN')};display:inline-block;"></span>${unidadeNome(u.unidade||'GYN')}
+      </div>
       <div class="stat">${qtd} <span style="font-size:12px;color:var(--muted);font-weight:400;">/ ${nv.meta} meta</span></div>
       <div class="progress-wrap"><div class="progress-fill ${pct>=100?'good':''}" style="width:${pct}%"></div></div>
       <div class="stat-sub">${sp ? (sp.elegivel ? '<span class="pill good">Elegível p/ promoção</span>' : 'Em avaliação até '+sp.cicloFim) : 'Nível máximo'}</div>
