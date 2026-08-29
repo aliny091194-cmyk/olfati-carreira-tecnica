@@ -189,12 +189,24 @@ const CATEGORICAL = ['#5F7F65','#4C6651','#4C6651','#C9A227','#8C6B3F','#141914'
 /* URL do CSV publicado do Google Sheets usado para contar atendimentos por técnico.
    Esta tela só CONTA linhas por técnico/mês (usa apenas as colunas "Colaborador" e
    "Data da tarefa" do CSV; qualquer outra coluna presente é ignorada pelo código).
-   IMPORTANTE: por decisão explícita do responsável pelo projeto, esta URL aponta para
-   a aba BASE_QUESTIONARIO publicada por inteiro (não a versão filtrada PAINEL_TECNICOS),
-   o que deixa CPF/CNPJ e dados de cliente publicamente acessíveis a quem tiver o link,
-   mesmo esse app não exibindo essas colunas. Deixe vazio para desativar esta aba. */
-const ATENDIMENTOS_SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vS2DCfw84Cs_7pXYf-QUqNcJM5m-dW39T_W7BZXsD_AJ7UmVbrJhmFep2hCwWUFQTZ95ZKW6KeJEooV/pub?gid=136073013&single=true&output=csv';
+   IMPORTANTE: por decisão explícita do responsável pelo projeto, a URL de GYN aponta
+   para a aba BASE_QUESTIONARIO publicada por inteiro (não a versão filtrada
+   PAINEL_TECNICOS), o que deixa CPF/CNPJ e dados de cliente publicamente acessíveis a
+   quem tiver o link, mesmo esse app não exibindo essas colunas.
+   Cada unidade (Goiânia, Brasília, ...) tem sua própria planilha/link publicado —
+   cada técnico é vinculado a UMA unidade (campo "Unidade" em Acessos dos Técnicos) e
+   sua contagem sai só da planilha daquela unidade. Deixe a URL vazia para desativar
+   uma unidade sem apagar o cadastro dela. */
+const UNIDADES = [
+  {key:'GYN', nome:'Goiânia'},
+  {key:'BSB', nome:'Brasília'}
+];
+const ATENDIMENTOS_SHEET_URLS = {
+  GYN: 'https://docs.google.com/spreadsheets/d/e/2PACX-1vS2DCfw84Cs_7pXYf-QUqNcJM5m-dW39T_W7BZXsD_AJ7UmVbrJhmFep2hCwWUFQTZ95ZKW6KeJEooV/pub?gid=136073013&single=true&output=csv',
+  BSB: ''
+};
 const ATENDIMENTOS_AUTO_REFRESH_MS = 5 * 60 * 1000; // 5 minutos
+function unidadeNome(key){ const u=UNIDADES.find(u=>u.key===key); return u?u.nome:key; }
 
 function defaultNiveis(){
   return {
@@ -230,7 +242,7 @@ function defaultUsuarios(){
   const arr=[{id:'admin', tipo:'admin', nome:'Administrador', login:'admin', senha:'admin123', ativo:true}];
   for(let i=1;i<=8;i++){
     arr.push({id:'tec'+i, tipo:'tecnico', nome:'Técnico '+i, login:'tecnico'+i, senha:genSenha(),
-      nivel:'junior', ativo:true, dataAdmissao: todayISO(), cicloInicio: todayISO()});
+      nivel:'junior', ativo:true, dataAdmissao: todayISO(), cicloInicio: todayISO(), unidade:'GYN'});
   }
   return arr;
 }
@@ -247,7 +259,10 @@ const state = {
   filtroPainel: {nivel:'', tecnico:''},
   activeTab: null,
   pendingImport: null,
-  atendimentosSheet: { linhas: [], headers: [], atualizadoEm: null, carregando: false, erro: '' },
+  atendimentosSheet: {
+    GYN: { linhas: [], headers: [], atualizadoEm: null, carregando: false, erro: '' },
+    BSB: { linhas: [], headers: [], atualizadoEm: null, carregando: false, erro: '' }
+  },
   tecnicosOrigem: null // 'supabase' | 'ficticio' — setado ao carregar o app como admin
 };
 
@@ -405,11 +420,11 @@ async function buildSessionFromSupabase(supabaseUser) {
   const tipo = profile.role === 'admin' ? 'admin' : 'tecnico';
 
   // 2. Se for técnico, buscar dados específicos + nível
-  let nivel = null, dataAdmissao = null, cicloInicio = null, auvoNome = null;
+  let nivel = null, dataAdmissao = null, cicloInicio = null, auvoNome = null, unidade = 'GYN';
   if (tipo === 'tecnico') {
     const { data: tec, error: tecErr } = await supabaseClient
       .from('technicians')
-      .select('id, admission_date, cycle_start, current_level_id, auvo_name')
+      .select('id, admission_date, cycle_start, current_level_id, auvo_name, unit')
       .eq('id', uid)
       .single();
 
@@ -421,6 +436,7 @@ async function buildSessionFromSupabase(supabaseUser) {
     dataAdmissao = tec.admission_date   ?? todayISO();
     cicloInicio  = tec.cycle_start      ?? todayISO();
     auvoNome     = tec.auvo_name        ?? null;
+    unidade      = tec.unit             ?? 'GYN';
   }
 
   // 3. Montar objeto no formato esperado pelo código existente
@@ -435,7 +451,9 @@ async function buildSessionFromSupabase(supabaseUser) {
     cicloInicio:  cicloInicio,
     // nome exatamente como aparece na coluna "Colaborador" da planilha do Auvo,
     // usado para casar a contagem de atendimentos. Sem isso, cai no nome normal.
-    auvoNome:     auvoNome
+    auvoNome:     auvoNome,
+    // qual planilha/unidade (GYN, BSB, ...) usar para contar os atendimentos dele.
+    unidade:      unidade
   };
 
   return session;
@@ -456,7 +474,7 @@ async function carregarTecnicosSupabase() {
   if (ids.length) {
     const { data, error: tecErr } = await supabaseClient
       .from('technicians')
-      .select('id, admission_date, cycle_start, current_level_id, auvo_name')
+      .select('id, admission_date, cycle_start, current_level_id, auvo_name, unit')
       .in('id', ids);
     if (tecErr) throw tecErr;
     tecnicosDb = data || [];
@@ -474,7 +492,8 @@ async function carregarTecnicosSupabase() {
       nivel: t.current_level_id || 'junior',
       dataAdmissao: t.admission_date || todayISO(),
       cicloInicio: t.cycle_start || todayISO(),
-      auvoNome: t.auvo_name || ''
+      auvoNome: t.auvo_name || '',
+      unidade: t.unit || 'GYN'
     };
   });
 
@@ -507,12 +526,19 @@ async function openApp() {
   document.getElementById('app').classList.remove('hidden');
   buildTabs();
   renderAll();
-  // Carrega a planilha do Auvo já no login (não só ao abrir a aba Atendimentos),
-  // pra Meu Painel/Visão Geral já nascerem com dados reais. Ela mesma chama
-  // renderAll() de novo quando terminar.
-  if (ATENDIMENTOS_SHEET_CSV_URL && !state.atendimentosSheet.atualizadoEm && !state.atendimentosSheet.carregando) {
-    carregarAtendimentosSheet();
-  }
+  // Carrega a(s) planilha(s) do Auvo já no login (não só ao abrir a aba
+  // Atendimentos), pra Meu Painel/Visão Geral já nascerem com dados reais.
+  // Técnico: só a unidade dele. Admin: todas as unidades configuradas (ele
+  // gerencia a equipe toda). Cada carga chama renderAll() de novo ao terminar.
+  const unidadesParaCarregar = state.session.tipo === 'admin'
+    ? UNIDADES.map(u => u.key)
+    : [state.session.unidade || 'GYN'];
+  unidadesParaCarregar.forEach(unidade => {
+    const sheet = state.atendimentosSheet[unidade];
+    if (ATENDIMENTOS_SHEET_URLS[unidade] && sheet && !sheet.atualizadoEm && !sheet.carregando) {
+      carregarAtendimentosSheet(unidade);
+    }
+  });
 }
 
 /* Login via Supabase Auth */
@@ -1205,12 +1231,14 @@ function renderAdminContas(main){
     <b>Salvar no Supabase</b>.
   </div>` : '';
 
-  const nomesAuvo = obterNomesColaboradorAuvo_();
-  const avisoSemNomesAuvo = (state.tecnicosOrigem === 'supabase' && !nomesAuvo.length) ? `
+  const unidadesSemPlanilha = [...new Set(tecnicos().map(u=>u.unidade||'GYN'))]
+    .filter(k => !obterNomesColaboradorAuvo_(k).length);
+  const avisoSemNomesAuvo = (state.tecnicosOrigem === 'supabase' && unidadesSemPlanilha.length) ? `
   <div class="note-box" style="margin-bottom:14px;border-color:var(--warning);">
-    A planilha do Auvo ainda não carregou (ou está vazia) — a lista suspensa de "Nome no Auvo"
-    vai aparecer vazia até ela carregar. Abra a aba <b>Atendimentos (Auvo)</b> uma vez para forçar
-    o carregamento e volte aqui.
+    A planilha do Auvo de <b>${unidadesSemPlanilha.map(unidadeNome).join(', ')}</b> ainda não carregou
+    (ou está vazia/sem link configurado) — a lista suspensa de "Nome no Auvo" desses técnicos vai
+    aparecer vazia até ela carregar. Abra a aba <b>Atendimentos (Auvo)</b> uma vez para forçar o
+    carregamento e volte aqui.
   </div>` : '';
 
   main.innerHTML = `
@@ -1218,14 +1246,21 @@ function renderAdminContas(main){
   <p class="small" style="margin-top:-6px;">Renomeie os técnicos com os nomes reais da equipe, defina o nível de cada um e gerencie login/senha de acesso.</p>
   ${avisoFicticio}${avisoSupabase}${avisoSemNomesAuvo}
   <div class="card table-wrap">
-    <table><thead><tr><th>Nome</th><th>Nome no Auvo</th><th>Login</th><th>Nível</th><th>Senha</th><th>Status</th><th></th></tr></thead>
+    <table><thead><tr><th>Nome</th><th>Unidade</th><th>Nome no Auvo</th><th>Login</th><th>Nível</th><th>Senha</th><th>Status</th><th></th></tr></thead>
     <tbody>
     ${tecnicos().map(u=>{
       const ficticio = typeof u.login === 'string';
+      const unidadeAtual = u.unidade || 'GYN';
+      const nomesAuvo = obterNomesColaboradorAuvo_(unidadeAtual);
       const atual = u.auvoNome || '';
       const opcoesAuvo = atual && !nomesAuvo.includes(atual) ? [atual, ...nomesAuvo] : nomesAuvo;
       return `<tr>
       <td><input style="width:140px" value="${u.nome}" onchange="renomearTecnico('${u.id}', this.value)"></td>
+      <td>${ficticio
+        ? '<span class="small" style="color:var(--muted)">—</span>'
+        : `<select style="width:110px" onchange="mudarUnidade('${u.id}', this.value)">
+            ${UNIDADES.map(un=>`<option value="${un.key}" ${unidadeAtual===un.key?'selected':''}>${un.nome}</option>`).join('')}
+          </select>`}</td>
       <td>${ficticio
         ? '<span class="small" style="color:var(--muted)">—</span>'
         : `<select style="width:190px" onchange="mudarAuvoNome('${u.id}', this.value)">
@@ -1262,6 +1297,7 @@ function mudarNivel(id, nivel){
 function redefinirSenha(id){ getUsuario(id).senha = genSenha(); renderAll(); }
 function toggleAtivo(id){ const u=getUsuario(id); u.ativo=!u.ativo; renderAll(); }
 function mudarAuvoNome(id, valor){ getUsuario(id).auvoNome = valor.trim(); renderAll(); }
+function mudarUnidade(id, valor){ getUsuario(id).unidade = valor; renderAll(); }
 
 /* Grava nome, nível, ciclo e status dos técnicos reais de volta no Supabase.
    Só existe quando state.tecnicosOrigem === 'supabase' (técnicos fictícios
@@ -1289,7 +1325,7 @@ async function salvarTecnicosSupabase(){
 
       const { data: tecData, error: tecErr } = await supabaseClient
         .from('technicians')
-        .update({ current_level_id: u.nivel, cycle_start: u.cicloInicio, auvo_name: u.auvoNome || null })
+        .update({ current_level_id: u.nivel, cycle_start: u.cicloInicio, auvo_name: u.auvoNome || null, unit: u.unidade || 'GYN' })
         .eq('id', u.id)
         .select();
       if (tecErr) throw tecErr;
@@ -1394,10 +1430,17 @@ function renderTecDash(main){
    ATENDIMENTOS (AUVO) — leitura automática da planilha publicada
 ===================================================================== */
 let atendimentosAutoTimer = null;
+/* Unidades relevantes pra sessão atual: técnico só a dele, admin todas as
+   que têm planilha configurada (ele gerencia a equipe toda). */
+function unidadesDaSessao_(){
+  if(!state.session) return [];
+  if(state.session.tipo==='admin') return UNIDADES.map(u=>u.key).filter(k=>ATENDIMENTOS_SHEET_URLS[k]);
+  return [state.session.unidade || 'GYN'];
+}
 function ensureAtendimentosAutoRefresh(){
   const ativo = state.activeTab==='admin-liveatend' || state.activeTab==='tec-liveatend';
-  if(ativo && !atendimentosAutoTimer && ATENDIMENTOS_SHEET_CSV_URL){
-    atendimentosAutoTimer = setInterval(()=>carregarAtendimentosSheet(), ATENDIMENTOS_AUTO_REFRESH_MS);
+  if(ativo && !atendimentosAutoTimer){
+    atendimentosAutoTimer = setInterval(()=>unidadesDaSessao_().forEach(carregarAtendimentosSheet), ATENDIMENTOS_AUTO_REFRESH_MS);
   }
   if(!ativo && atendimentosAutoTimer){ clearInterval(atendimentosAutoTimer); atendimentosAutoTimer=null; }
 }
@@ -1433,9 +1476,9 @@ function contarAtendimentosSheetPorTecnico_(linhas, headers, mesRef){
 /* Lista os nomes distintos da coluna Colaborador da planilha publicada,
    usada para montar a lista suspensa de "Nome no Auvo" (evita erro de
    digitação que quebraria o vínculo com a contagem de atendimentos). */
-function obterNomesColaboradorAuvo_(){
-  const sheet = state.atendimentosSheet;
-  const headers = sheet.headers || [];
+function obterNomesColaboradorAuvo_(unidade){
+  const sheet = state.atendimentosSheet[unidade];
+  const headers = sheet ? (sheet.headers || []) : [];
   const colColaborador = getColByKeywords(headers, ['colaborador','tecnico']);
   if(!colColaborador) return [];
   const vistos = new Set();
@@ -1446,15 +1489,16 @@ function obterNomesColaboradorAuvo_(){
   return [...vistos].sort((a,b)=>a.localeCompare(b,'pt-BR'));
 }
 
-async function carregarAtendimentosSheet(){
-  const sheet = state.atendimentosSheet;
-  if(!ATENDIMENTOS_SHEET_CSV_URL){ sheet.erro='not_configured'; return; }
+async function carregarAtendimentosSheet(unidade){
+  const url = ATENDIMENTOS_SHEET_URLS[unidade];
+  const sheet = state.atendimentosSheet[unidade];
+  if(!url){ sheet.erro='not_configured'; return; }
   if(sheet.carregando) return;
   sheet.carregando = true; sheet.erro='';
   renderAll();
   try{
-    const separador = ATENDIMENTOS_SHEET_CSV_URL.includes('?') ? '&' : '?';
-    const resp = await fetch(ATENDIMENTOS_SHEET_CSV_URL + separador + 'cachebust=' + Date.now());
+    const separador = url.includes('?') ? '&' : '?';
+    const resp = await fetch(url + separador + 'cachebust=' + Date.now());
     if(!resp.ok) throw new Error('HTTP ' + resp.status);
     const text = await resp.text();
     const {headers, rows} = parseCSVText(text);
@@ -1472,59 +1516,78 @@ async function carregarAtendimentosSheet(){
 
 function renderAtendimentosAuvo(main){
   const isAdmin = state.session.tipo==='admin';
-  const sheet = state.atendimentosSheet;
+  const unidades = isAdmin
+    ? UNIDADES.filter(u => ATENDIMENTOS_SHEET_URLS[u.key] || tecnicos().some(t=>(t.unidade||'GYN')===u.key))
+    : UNIDADES.filter(u => u.key === (state.session.unidade || 'GYN'));
 
-  if(!ATENDIMENTOS_SHEET_CSV_URL){
+  if(!unidades.some(u => ATENDIMENTOS_SHEET_URLS[u.key])){
     main.innerHTML = `
-    <div class="section-head"><h2>Atendimentos (Auvo)</h2></div>
+    <div class="section-head"><h2>${isAdmin ? 'Atendimentos (Auvo)' : 'Meus atendimentos'}</h2></div>
     <div class="card">
       <div class="empty-state">
-        Esta aba ainda não foi conectada à planilha do Auvo.<br><br>
+        ${isAdmin ? 'Nenhuma unidade' : 'Sua unidade'} ainda não foi conectada à planilha do Auvo.<br><br>
         No Google Sheets: crie uma aba só com as colunas <b>Colaborador</b> e
         <b>Data da tarefa</b> (junte aí as linhas de todos os tipos de atendimento) e publique
         essa aba em <b>Arquivo → Compartilhar → Publicar na Web</b> no formato <b>CSV</b>.
-        Cole o link publicado na constante <span class="mono">ATENDIMENTOS_SHEET_CSV_URL</span>
-        no topo do arquivo <span class="mono">index.html</span>.
+        Cole o link publicado em <span class="mono">ATENDIMENTOS_SHEET_URLS</span>
+        no topo do arquivo <span class="mono">index.html</span>, na chave da unidade certa
+        (${UNIDADES.map(u=>u.key+' = '+u.nome).join(', ')}).
       </div>
     </div>`;
     return;
   }
 
-  if(!sheet.atualizadoEm && !sheet.carregando && sheet.erro!=='not_configured' && !sheet.erro){
-    carregarAtendimentosSheet();
+  unidades.forEach(u => {
+    if(!ATENDIMENTOS_SHEET_URLS[u.key]) return;
+    const sheet = state.atendimentosSheet[u.key];
+    if(!sheet.atualizadoEm && !sheet.carregando && sheet.erro!=='not_configured' && !sheet.erro){
+      carregarAtendimentosSheet(u.key);
+    }
+  });
+
+  main.innerHTML = `
+  <div class="section-head">
+    <h2>${isAdmin ? 'Atendimentos (Auvo)' : 'Meus atendimentos'}</h2>
+    <div class="toolbar">${mesSelectorHTML()}</div>
+  </div>
+  ${unidades.map(u => `<div id="atendAuvoUnidade_${u.key}" style="margin-bottom:18px;"></div>`).join('')}
+  <p class="small" style="margin-top:8px;color:var(--muted);">
+    Contagem de atendimentos (todos os tipos de questionário) vinda da planilha alimentada
+    pela integração Auvo, uma planilha por unidade. O script atualiza a planilha uma vez por
+    dia; esta tela também busca automaticamente a cada 5 minutos enquanto estiver aberta.
+  </p>`;
+
+  unidades.forEach(u => renderAtendimentosContagemUnidade_(u.key, isAdmin && unidades.length > 1));
+}
+
+function renderAtendimentosContagemUnidade_(unidadeKey, mostrarTitulo){
+  const wrap = document.getElementById('atendAuvoUnidade_' + unidadeKey); if(!wrap) return;
+  const isAdmin = state.session.tipo === 'admin';
+  const sheet = state.atendimentosSheet[unidadeKey];
+  const titulo = mostrarTitulo ? `<h3 style="margin:0 0 8px;font-size:14px;">${unidadeNome(unidadeKey)}</h3>` : '';
+
+  if(!ATENDIMENTOS_SHEET_URLS[unidadeKey]){
+    wrap.innerHTML = `${titulo}<div class="card"><div class="empty-state">Planilha desta unidade ainda não configurada.</div></div>`;
+    return;
   }
 
   const atualizadoTxt = sheet.atualizadoEm
     ? sheet.atualizadoEm.toLocaleString('pt-BR')
     : (sheet.carregando ? 'Carregando…' : 'Ainda não carregado');
 
-  main.innerHTML = `
-  <div class="section-head">
-    <h2>${isAdmin ? 'Atendimentos (Auvo)' : 'Meus atendimentos'}</h2>
-    <div class="toolbar">
-      ${mesSelectorHTML()}
-      <span class="small">Atualizado em: ${atualizadoTxt}</span>
-      <button class="btn" ${sheet.carregando?'disabled':''} onclick="carregarAtendimentosSheet()">${sheet.carregando?'Atualizando…':'Atualizar agora'}</button>
+  const cabecalho = `
+    <div class="section-head" style="margin-bottom:8px;">
+      ${titulo || '<span></span>'}
+      <div class="toolbar">
+        <span class="small">Atualizado em: ${atualizadoTxt}</span>
+        <button class="btn" ${sheet.carregando?'disabled':''} onclick="carregarAtendimentosSheet('${unidadeKey}')">${sheet.carregando?'Atualizando…':'Atualizar agora'}</button>
+      </div>
     </div>
-  </div>
-  ${sheet.erro && sheet.erro!=='not_configured' ? `<div class="card section"><p class="danger-text small" style="margin:0;">Não foi possível carregar a planilha: ${sheet.erro}</p></div>` : ''}
-  <div id="atendAuvoContagem"></div>
-  <p class="small" style="margin-top:8px;color:var(--muted);">
-    Contagem de atendimentos (todos os tipos de questionário) vinda da planilha alimentada
-    pela integração Auvo. O script atualiza a planilha uma vez por dia; esta tela também
-    busca a planilha automaticamente a cada 5 minutos enquanto esta aba estiver aberta.
-  </p>`;
-
-  renderAtendimentosContagem();
-}
-
-function renderAtendimentosContagem(){
-  const wrap=document.getElementById('atendAuvoContagem'); if(!wrap) return;
-  const isAdmin = state.session.tipo==='admin';
-  const sheet = state.atendimentosSheet;
+    ${sheet.erro && sheet.erro!=='not_configured' ? `<div class="card section"><p class="danger-text small" style="margin:0;">Não foi possível carregar a planilha: ${sheet.erro}</p></div>` : ''}
+  `;
 
   if(!sheet.headers || !sheet.headers.length){
-    wrap.innerHTML = `<div class="card"><div class="empty-state">${sheet.carregando?'Carregando atendimentos…':'Nenhum dado carregado ainda.'}</div></div>`;
+    wrap.innerHTML = cabecalho + `<div class="card"><div class="empty-state">${sheet.carregando?'Carregando atendimentos…':'Nenhum dado carregado ainda.'}</div></div>`;
     return;
   }
 
@@ -1533,7 +1596,7 @@ function renderAtendimentosContagem(){
   if(!isAdmin){
     const chave = normTxt(state.session.auvoNome || state.session.nome);
     const item = contagem[chave];
-    wrap.innerHTML = `<div class="grid grid-4">
+    wrap.innerHTML = cabecalho + `<div class="grid grid-4">
       <div class="card"><h3>Atendimentos no mês (Auvo)</h3>
         <div class="stat">${item ? item.qtd : 0}</div>
         <div class="stat-sub">${fmtMonthLabel(state.mesRef)} — todos os tipos de atendimento</div>
@@ -1542,12 +1605,13 @@ function renderAtendimentosContagem(){
     return;
   }
 
-  // Casa cada técnico cadastrado com sua contagem via "Nome no Auvo" (com
+  // Casa cada técnico DESTA unidade com sua contagem via "Nome no Auvo" (com
   // fallback pro nome normal). O que sobrar em "contagem" são nomes da
   // planilha que não bateram com nenhum técnico — útil pra achar vínculos
   // faltando ou nomes que não são técnicos de campo (ex.: contas de estoque).
+  const tecnicosDaUnidade = tecnicos().filter(u => (u.unidade||'GYN') === unidadeKey);
   const usadas = new Set();
-  const linhasTecnicos = tecnicos().map(u=>{
+  const linhasTecnicos = tecnicosDaUnidade.map(u=>{
     const chave = normTxt(u.auvoNome || u.nome);
     usadas.add(chave);
     return { nome: u.nome, qtd: contagem[chave] ? contagem[chave].qtd : 0 };
@@ -1558,10 +1622,10 @@ function renderAtendimentosContagem(){
     .map(chave => contagem[chave])
     .sort((a,b)=>b.qtd-a.qtd);
 
-  wrap.innerHTML = `<div class="card table-wrap"><table>
+  wrap.innerHTML = cabecalho + `<div class="card table-wrap"><table>
     <thead><tr><th>Técnico</th><th class="num">Atendimentos no mês</th></tr></thead>
     <tbody>${linhasTecnicos.length ? linhasTecnicos.map(l=>`<tr><td>${l.nome}</td><td class="num">${l.qtd}</td></tr>`).join('')
-      : `<tr><td colspan="2" class="empty-state">Nenhum técnico cadastrado.</td></tr>`}</tbody>
+      : `<tr><td colspan="2" class="empty-state">Nenhum técnico cadastrado nesta unidade.</td></tr>`}</tbody>
   </table></div>
   ${naoVinculados.length ? `
   <div class="card table-wrap" style="margin-top:12px;">
