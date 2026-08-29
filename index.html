@@ -465,7 +465,7 @@ async function buildSessionFromSupabase(supabaseUser) {
 async function carregarTecnicosSupabase() {
   const { data: perfis, error: perfisErr } = await supabaseClient
     .from('profiles')
-    .select('id, role, display_name, is_active')
+    .select('id, role, display_name, is_active, email')
     .eq('role', 'technician');
   if (perfisErr) throw perfisErr;
 
@@ -493,7 +493,8 @@ async function carregarTecnicosSupabase() {
       dataAdmissao: t.admission_date || todayISO(),
       cicloInicio: t.cycle_start || todayISO(),
       auvoNome: t.auvo_name || '',
-      unidade: t.unit || 'GYN'
+      unidade: t.unit || 'GYN',
+      email: p.email || ''
     };
   });
 
@@ -1301,14 +1302,16 @@ function renderAdminContas(main){
             <option value="">— nenhum —</option>
             ${opcoesAuvo.map(n=>`<option value="${n.replace(/"/g,'&quot;')}" ${n===atual?'selected':''}>${n}</option>`).join('')}
           </select>`}</td>
-      <td class="mono">${ficticio ? u.login : '<span class="small" style="color:var(--muted)">Supabase</span>'}</td>
+      <td class="mono">${ficticio ? u.login : (u.email || '<span class="small" style="color:var(--muted)">—</span>')}</td>
       <td><select onchange="mudarNivel('${u.id}', this.value)">
         ${Object.values(state.niveis).map(n=>`<option value="${n.key}" ${u.nivel===n.key?'selected':''}>${n.nome}</option>`).join('')}
       </select></td>
       <td class="mono">${ficticio ? u.senha : '—'}</td>
       <td>${u.ativo?'<span class="pill good">Ativa</span>':'<span class="pill bad">Desativada</span>'}</td>
       <td>
-        ${ficticio ? `<button class="link-btn" onclick="redefinirSenha('${u.id}')">redefinir senha</button> · ` : ''}
+        ${ficticio
+          ? `<button class="link-btn" onclick="redefinirSenha('${u.id}')">redefinir senha</button> · `
+          : `<button class="link-btn" onclick="redefinirSenhaSupabase('${u.id}', '${u.nome.replace(/'/g,"\\'")}')">redefinir senha</button> · `}
         <button class="link-btn ${u.ativo?'danger-text':''}" onclick="toggleAtivo('${u.id}')">${u.ativo?'desativar':'ativar'}</button>
       </td>
     </tr>`;
@@ -1329,6 +1332,26 @@ function mudarNivel(id, nivel){
   renderAll();
 }
 function redefinirSenha(id){ getUsuario(id).senha = genSenha(); renderAll(); }
+
+/* Redefine a senha de um técnico REAL do Supabase. Não dá pra fazer isso
+   com a chave anon (o navegador nunca deve ter a service role key) — por
+   isso chama a Edge Function "reset-technician-password", que roda no
+   servidor com a service role key e confere que quem pediu é admin antes
+   de trocar a senha. Ver supabase/functions/reset-technician-password/. */
+async function redefinirSenhaSupabase(id, nome){
+  if (!confirm('Gerar uma nova senha para ' + nome + '? A senha atual dele para de funcionar imediatamente.')) return;
+  try {
+    const { data, error } = await supabaseClient.functions.invoke('reset-technician-password', {
+      body: { technicianId: id }
+    });
+    if (error) throw error;
+    if (data && data.error) throw new Error(data.error);
+    if (!data || !data.senha) throw new Error('A função não retornou uma senha.');
+    alert('Nova senha para ' + nome + ':\n\n' + data.senha + '\n\nAnote e repasse pro técnico agora — essa senha não fica salva em nenhum lugar do site.');
+  } catch (e) {
+    alert('Erro ao redefinir senha: ' + (e.message || e));
+  }
+}
 function toggleAtivo(id){ const u=getUsuario(id); u.ativo=!u.ativo; renderAll(); }
 function mudarAuvoNome(id, valor){ getUsuario(id).auvoNome = valor.trim(); renderAll(); }
 function mudarUnidade(id, valor){ getUsuario(id).unidade = valor; renderAll(); }
