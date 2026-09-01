@@ -665,9 +665,31 @@ function renderAll(){
   if(fn) fn(main);
 }
 
+/* Meses com dados reais na(s) planilha(s) do Auvo da sessão atual — sem isso,
+   o seletor de mês só conhecia o mês corrente (state.mesRef) e o import manual
+   (state.atendimentos, que fica vazio pois não há localStorage). Resultado: ao
+   virar o mês, o painel pulava pro mês novo e não sobrava opção nenhuma pra
+   voltar e ver o histórico, mesmo os dados continuando na planilha. */
+function mesesComDadosSheet_(){
+  const meses = new Set();
+  unidadesDaSessao_().forEach(function(unidadeKey){
+    const sheet = state.atendimentosSheet[unidadeKey];
+    if(!sheet || !sheet.headers || !sheet.headers.length) return;
+    const colData = getColByKeywords(sheet.headers, ['data da tarefa','data']);
+    if(!colData) return;
+    (sheet.linhas||[]).forEach(function(l){
+      const dataTxt = String(l[colData]||'').trim();
+      if(!dataTxt) return;
+      meses.add(monthKey(parseDateCell(dataTxt)));
+    });
+  });
+  return meses;
+}
+
 function mesSelectorHTML(){
   const meses=new Set([state.mesRef]);
   state.atendimentos.forEach(a=>meses.add(monthKey(a.data)));
+  mesesComDadosSheet_().forEach(mk=>meses.add(mk));
   const arr=[...meses].sort().reverse();
   return `<select id="mesRefSelect" onchange="state.mesRef=this.value; renderAll();">
     ${arr.map(mk=>`<option value="${mk}" ${mk===state.mesRef?'selected':''}>${fmtMonthLabel(mk)}</option>`).join('')}
