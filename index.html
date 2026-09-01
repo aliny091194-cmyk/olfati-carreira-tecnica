@@ -670,14 +670,6 @@ function renderAll(){
    (state.atendimentos, que fica vazio pois não há localStorage). Resultado: ao
    virar o mês, o painel pulava pro mês novo e não sobrava opção nenhuma pra
    voltar e ver o histórico, mesmo os dados continuando na planilha. */
-/* Datas fora desse intervalo são lixo (ex.: sentinela "0001-01-01" que o
-   Auvo grava quando um campo de data nunca foi respondido) e não devem
-   virar mês selecionável. */
-function dataAuvoValida_(iso){
-  const ano = parseInt(String(iso||'').slice(0,4), 10);
-  return ano >= 2020 && ano <= 2100;
-}
-
 function mesesComDadosSheet_(){
   const meses = new Set();
   unidadesDaSessao_().forEach(function(unidadeKey){
@@ -688,9 +680,7 @@ function mesesComDadosSheet_(){
     (sheet.linhas||[]).forEach(function(l){
       const dataTxt = String(l[colData]||'').trim();
       if(!dataTxt) return;
-      const iso = parseDateCell(dataTxt);
-      if(!dataAuvoValida_(iso)) return;
-      meses.add(monthKey(iso));
+      meses.add(monthKey(parseDateCell(dataTxt)));
     });
   });
   return meses;
@@ -1537,20 +1527,8 @@ function ensureAtendimentosAutoRefresh(){
 function normTxt(s){
   return String(s||'').normalize('NFD').replace(/\p{Mn}/gu,'').toLowerCase().trim();
 }
-/* Testa os keywords em ORDEM DE PRIORIDADE, não a ordem das colunas na
-   planilha: antes procurava a primeira coluna que casasse com QUALQUER
-   keyword, então para ['data da tarefa','data'] a coluna "Data resposta"
-   (mais à esquerda na BASE_QUESTIONARIO) vencia de "Data da tarefa" só por
-   também conter a palavra solta "data" — trocando silenciosamente a data
-   usada pra competência/produtividade pela data de resposta do questionário
-   (que o Auvo às vezes grava como "01/01/0001" quando não houve resposta
-   com data, o que aparecia como mês fantasma "Jan/0001" no seletor). */
 function getColByKeywords(headers, keywords){
-  for(const k of keywords){
-    const h = headers.find(h=>normTxt(h).includes(k));
-    if(h) return h;
-  }
-  return '';
+  return headers.find(h=>keywords.some(k=>normTxt(h).includes(k))) || '';
 }
 
 /* Conta atendimentos por técnico no mês, somando todos os tipos de
