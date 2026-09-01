@@ -296,16 +296,12 @@ function atendimentosDoMes(tecnicoId, mk){
   if (sheet && sheet.headers && sheet.headers.length) {
     const chaveAlvo = normTxt(u ? (u.auvoNome || u.nome) : '');
     const colColaborador = getColByKeywords(sheet.headers, ['colaborador','tecnico']);
-    const colData = getColByKeywords(sheet.headers, ['data da tarefa','data']);
-    if (chaveAlvo && colColaborador && colData) {
+    const temColunasDeData = localizarColunaExata_(sheet.headers, 'Data resposta') || localizarColunaExata_(sheet.headers, 'Data da tarefa');
+    if (chaveAlvo && colColaborador && temColunasDeData) {
       return sheet.linhas
-        .filter(l => {
-          const dataTxt = String(l[colData] || '').trim();
-          if (!dataTxt) return false;
-          if (monthKey(parseDateCell(dataTxt)) !== mk) return false;
-          return normTxt(l[colColaborador]) === chaveAlvo;
-        })
-        .map(l => ({ data: parseDateCell(l[colData]) }));
+        .filter(l => normTxt(l[colColaborador]) === chaveAlvo)
+        .map(l => ({ data: dataCompetenciaProdutividade_(l, sheet.headers) }))
+        .filter(a => a.data && monthKey(a.data) === mk);
     }
   }
   return state.atendimentos.filter(a=>a.tecnicoId===tecnicoId && monthKey(a.data)===mk);
@@ -675,12 +671,12 @@ function mesesComDadosSheet_(){
   unidadesDaSessao_().forEach(function(unidadeKey){
     const sheet = state.atendimentosSheet[unidadeKey];
     if(!sheet || !sheet.headers || !sheet.headers.length) return;
-    const colData = getColByKeywords(sheet.headers, ['data da tarefa','data']);
-    if(!colData) return;
+    const temColunasDeData = localizarColunaExata_(sheet.headers, 'Data resposta') || localizarColunaExata_(sheet.headers, 'Data da tarefa');
+    if(!temColunasDeData) return;
     (sheet.linhas||[]).forEach(function(l){
-      const dataTxt = String(l[colData]||'').trim();
-      if(!dataTxt) return;
-      meses.add(monthKey(parseDateCell(dataTxt)));
+      const competencia = dataCompetenciaProdutividade_(l, sheet.headers);
+      if(!competencia) return;
+      meses.add(monthKey(competencia));
     });
   });
   return meses;
@@ -1531,18 +1527,61 @@ function getColByKeywords(headers, keywords){
   return headers.find(h=>keywords.some(k=>normTxt(h).includes(k))) || '';
 }
 
+/* Casamento EXATO de cabeçalho (normalizado) — usado só para "Data resposta"
+   e "Data da tarefa", que determinam a competência da produtividade e não
+   podem ser resolvidas por busca genérica (getColByKeywords já causou, no
+   passado, a coluna errada vencer por conter a palavra solta "data"). */
+function localizarColunaExata_(headers, nomeAlvo){
+  const alvo = normTxt(nomeAlvo);
+  return headers.find(h => normTxt(h) === alvo) || '';
+}
+
+/* Datas com ano fora desse intervalo são inválidas (ex.: sentinela
+   "0001-01-01" que o Auvo grava quando um campo de data nunca foi
+   respondido) — nunca viram mês selecionável nem contam produtividade. */
+function dataAuvoValida_(iso){
+  const ano = parseInt(String(iso||'').slice(0,4), 10);
+  return ano >= 2020 && ano <= 2100;
+}
+
+/* Regra ÚNICA e aprovada de competência da produtividade — usada pelo
+   seletor mensal e por todo cálculo do painel, para nunca haver divergência
+   entre "quais meses existem" e "quanto cada um vale":
+     1) "Data resposta" válida -> usa ela;
+     2) senão, "Data da tarefa" válida -> usa ela;
+     3) senão -> null (inconsistência; não entra em nenhum mês).
+   Não lê nem altera nenhuma outra coluna, não escreve de volta na planilha. */
+function dataCompetenciaProdutividade_(linha, headers){
+  const colResposta = localizarColunaExata_(headers, 'Data resposta');
+  const colTarefa = localizarColunaExata_(headers, 'Data da tarefa');
+
+  const respTxt = colResposta ? String(linha[colResposta]||'').trim() : '';
+  if(respTxt){
+    const isoResposta = parseDateCell(respTxt);
+    if(dataAuvoValida_(isoResposta)) return isoResposta;
+  }
+
+  const tarTxt = colTarefa ? String(linha[colTarefa]||'').trim() : '';
+  if(tarTxt){
+    const isoTarefa = parseDateCell(tarTxt);
+    if(dataAuvoValida_(isoTarefa)) return isoTarefa;
+  }
+
+  return null;
+}
+
 /* Conta atendimentos por técnico no mês, somando todos os tipos de
-   questionário (a planilha publicada só precisa ter Colaborador + Data da
-   tarefa — nenhum dado sensível). */
+   questionário (a planilha publicada só precisa ter Colaborador + Data
+   resposta/Data da tarefa — nenhum dado sensível). */
 function contarAtendimentosSheetPorTecnico_(linhas, headers, mesRef){
   const colColaborador = getColByKeywords(headers, ['colaborador','tecnico']);
-  const colData = getColByKeywords(headers, ['data da tarefa','data']);
+  const temColunasDeData = localizarColunaExata_(headers, 'Data resposta') || localizarColunaExata_(headers, 'Data da tarefa');
   const contagem = {};
-  if(!colColaborador || !colData) return contagem;
+  if(!colColaborador || !temColunasDeData) return contagem;
   linhas.forEach(l=>{
-    const dataTxt = String(l[colData]||'').trim();
-    if(!dataTxt) return;
-    if(monthKey(parseDateCell(dataTxt)) !== mesRef) return;
+    const competencia = dataCompetenciaProdutividade_(l, headers);
+    if(!competencia) return;
+    if(monthKey(competencia) !== mesRef) return;
     const nome = String(l[colColaborador]||'').trim();
     if(!nome) return;
     const chave = normTxt(nome);
