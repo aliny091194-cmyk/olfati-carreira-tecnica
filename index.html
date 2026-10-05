@@ -303,20 +303,30 @@ function daysInMonth(mk){ const [y,m]=mk.split('-').map(Number); return new Date
 
 /* Fonte dos atendimentos do painel: se a planilha do Auvo já foi carregada,
    ela é a fonte de verdade pra todo mundo (substitui a importação manual).
-   Antes dela carregar (ou se não estiver configurada), cai no import manual. */
+   Antes dela carregar (ou se não estiver configurada), cai no import manual.
+   O técnico recebe os atendimentos dele em QUALQUER unidade: se um técnico de
+   Goiânia atender em Brasília (ex.: Leonardo em set/2026), as linhas com o
+   nome dele na planilha de Brasília somam no total dele. */
 function atendimentosDoMes(tecnicoId, mk){
   const u = getUsuario(tecnicoId);
-  const sheet = state.atendimentosSheet[u ? (u.unidade || 'GYN') : 'GYN'];
-  if (sheet && sheet.headers && sheet.headers.length) {
-    const chaveAlvo = normTxt(u ? (u.auvoNome || u.nome) : '');
-    const colColaborador = getColByKeywords(sheet.headers, ['colaborador','tecnico']);
-    const temColunasDeData = localizarColunaExata_(sheet.headers, 'Data resposta') || localizarColunaExata_(sheet.headers, 'Data da tarefa');
-    if (chaveAlvo && colColaborador && temColunasDeData) {
-      return sheet.linhas
-        .filter(l => normTxt(l[colColaborador]) === chaveAlvo)
-        .map(l => ({ data: dataCompetenciaProdutividade_(l, sheet.headers) }))
-        .filter(a => a.data && monthKey(a.data) === mk);
-    }
+  const chaveAlvo = normTxt(u ? (u.auvoNome || u.nome) : '');
+  const unidadeCasa = u ? (u.unidade || 'GYN') : 'GYN';
+  const casa = state.atendimentosSheet[unidadeCasa];
+  if (chaveAlvo && casa && casa.headers && casa.headers.length) {
+    const resultado = [];
+    UNIDADES.forEach(function(un){
+      const sheet = state.atendimentosSheet[un.key];
+      if (!sheet || !sheet.headers || !sheet.headers.length) return;
+      const colColaborador = getColByKeywords(sheet.headers, ['colaborador','tecnico']);
+      const temColunasDeData = localizarColunaExata_(sheet.headers, 'Data resposta') || localizarColunaExata_(sheet.headers, 'Data da tarefa');
+      if (!colColaborador || !temColunasDeData) return;
+      sheet.linhas.forEach(function(l){
+        if (normTxt(l[colColaborador]) !== chaveAlvo) return;
+        const data = dataCompetenciaProdutividade_(l, sheet.headers);
+        if (data && monthKey(data) === mk) resultado.push({ data: data, unidade: un.key });
+      });
+    });
+    return resultado;
   }
   return state.atendimentos.filter(a=>a.tecnicoId===tecnicoId && monthKey(a.data)===mk);
 }
@@ -539,12 +549,10 @@ async function openApp() {
   renderAll();
   // Carrega a(s) planilha(s) do Auvo já no login (não só ao abrir a aba
   // Atendimentos), pra Meu Painel/Visão Geral já nascerem com dados reais.
-  // Técnico: só a unidade dele. Admin: todas as unidades configuradas (ele
-  // gerencia a equipe toda). Cada carga chama renderAll() de novo ao terminar.
-  const unidadesParaCarregar = state.session.tipo === 'admin'
-    ? UNIDADES.map(u => u.key)
-    : [state.session.unidade || 'GYN'];
-  unidadesParaCarregar.forEach(unidade => {
+  // Carrega todas as unidades configuradas, também para o técnico: o total
+  // dele inclui atendimentos feitos em outra unidade (ver atendimentosDoMes).
+  // Cada carga chama renderAll() de novo ao terminar.
+  UNIDADES.map(u => u.key).forEach(unidade => {
     const sheet = state.atendimentosSheet[unidade];
     if (ATENDIMENTOS_SHEET_URLS[unidade] && sheet && !sheet.atualizadoEm && !sheet.carregando) {
       carregarAtendimentosSheet(unidade);
@@ -1761,12 +1769,12 @@ function renderAtendimentosContagemUnidade_(unidadeKey, mostrarTitulo){
   const contagem = contarAtendimentosSheetPorTecnico_(sheet.linhas, sheet.headers, state.mesRef);
 
   if(!isAdmin){
-    const chave = normTxt(state.session.auvoNome || state.session.nome);
-    const item = contagem[chave];
+    const meus = atendimentosDoMes(state.session.id, state.mesRef);
+    const foraDaUnidade = meus.filter(a => a.unidade && a.unidade !== unidadeKey).length;
     wrap.innerHTML = cabecalho + `<div class="grid grid-4">
       <div class="card"><h3>Atendimentos no mês (Auvo)</h3>
-        <div class="stat">${item ? item.qtd : 0}</div>
-        <div class="stat-sub">${fmtMonthLabel(state.mesRef)} — todos os tipos de atendimento</div>
+        <div class="stat">${meus.length}</div>
+        <div class="stat-sub">${fmtMonthLabel(state.mesRef)} — todos os tipos de atendimento${foraDaUnidade ? ` (inclui ${foraDaUnidade} em outra unidade)` : ''}</div>
       </div>
     </div>`;
     return;
@@ -1782,7 +1790,16 @@ function renderAtendimentosContagemUnidade_(unidadeKey, mostrarTitulo){
     const chave = normTxt(u.auvoNome || u.nome);
     usadas.add(chave);
     return { nome: u.nome, qtd: contagem[chave] ? contagem[chave].qtd : 0 };
-  }).sort((a,b)=>b.qtd-a.qtd);
+  });
+  // Técnicos de OUTRA unidade que atenderam aqui: aparecem na tabela com a
+  // unidade deles (esses atendimentos já somam no total deles no painel).
+  tecnicos().filter(u => (u.unidade||'GYN') !== unidadeKey).forEach(u=>{
+    const chave = normTxt(u.auvoNome || u.nome);
+    if(!contagem[chave] || usadas.has(chave)) return;
+    usadas.add(chave);
+    linhasTecnicos.push({ nome: u.nome + ' (técnico de ' + unidadeNome(u.unidade||'GYN') + ')', qtd: contagem[chave].qtd });
+  });
+  linhasTecnicos.sort((a,b)=>b.qtd-a.qtd);
 
   const naoVinculados = Object.keys(contagem)
     .filter(chave => !usadas.has(chave))
