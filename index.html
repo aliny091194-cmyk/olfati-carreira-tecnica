@@ -205,6 +205,18 @@ const ATENDIMENTOS_SHEET_URLS = {
   GYN: 'https://docs.google.com/spreadsheets/d/e/2PACX-1vS2DCfw84Cs_7pXYf-QUqNcJM5m-dW39T_W7BZXsD_AJ7UmVbrJhmFep2hCwWUFQTZ95ZKW6KeJEooV/pub?gid=136073013&single=true&output=csv',
   BSB: 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQqpGoklHgyTFehmmXYsDKXEi5aSSnTLdbWgd7rQurS-R3CUVOY7pixz2_GfgaT8568mO9CVzDFX82j/pub?gid=136073013&single=true&output=csv'
 };
+/* Planilhas de meses anteriores (a planilha do Auvo é copiada todo mês, então
+   cada mês fechado fica num link publicado próprio). De cada link entra SÓ o
+   mês indicado em "mes" (AAAA-MM): a planilha de setembro, por exemplo, também
+   tem os primeiros dias de outubro, que já estão na planilha atual e seriam
+   contados em dobro. Para esse mês, o histórico tem prioridade sobre a planilha
+   atual. Carregado uma vez por sessão (mês fechado não muda). */
+const ATENDIMENTOS_SHEET_HISTORICO = {
+  GYN: [
+    {mes:'2026-09', url:'https://docs.google.com/spreadsheets/d/e/2PACX-1vRyuWJ07Ud5ELggy009G8tGaLZbgr8xZx7_xxDjRY7DdhubpdA8w-Innuayced8226sUlLHa1Eq1HmU/pub?gid=136073013&single=true&output=csv'}
+  ],
+  BSB: []
+};
 const ATENDIMENTOS_AUTO_REFRESH_MS = 5 * 60 * 1000; // 5 minutos
 function unidadeNome(key){ const u=UNIDADES.find(u=>u.key===key); return u?u.nome:key; }
 
@@ -1607,6 +1619,40 @@ function obterNomesColaboradorAuvo_(unidade){
   return [...vistos].sort((a,b)=>a.localeCompare(b,'pt-BR'));
 }
 
+async function buscarCSVPublicado_(url){
+  const separador = url.includes('?') ? '&' : '?';
+  const resp = await fetch(url + separador + 'cachebust=' + Date.now());
+  if(!resp.ok) throw new Error('HTTP ' + resp.status);
+  return parseCSVText(await resp.text());
+}
+
+/* Linhas dos meses fechados da unidade (ATENDIMENTOS_SHEET_HISTORICO), já
+   filtradas para o mês de cada link. Fica em cache na sessão: o auto refresh
+   de 5 min só rebusca a planilha do mês atual. Um link de histórico com
+   problema não derruba a carga do mês atual — só registra o erro no console. */
+const historicoAtendimentosCache_ = {};
+async function carregarHistoricoAtendimentos_(unidade){
+  const fontes = ATENDIMENTOS_SHEET_HISTORICO[unidade] || [];
+  const resultado = [];
+  for(const fonte of fontes){
+    const chave = unidade + '|' + fonte.mes + '|' + fonte.url;
+    if(!historicoAtendimentosCache_[chave]){
+      try{
+        const {headers, rows} = await buscarCSVPublicado_(fonte.url);
+        historicoAtendimentosCache_[chave] = rows.filter(l=>{
+          const c = dataCompetenciaProdutividade_(l, headers);
+          return c && monthKey(c) === fonte.mes;
+        });
+      }catch(err){
+        console.error('Falha ao carregar histórico ' + unidade + ' ' + fonte.mes + ':', err);
+        continue;
+      }
+    }
+    resultado.push({mes: fonte.mes, linhas: historicoAtendimentosCache_[chave]});
+  }
+  return resultado;
+}
+
 async function carregarAtendimentosSheet(unidade){
   const url = ATENDIMENTOS_SHEET_URLS[unidade];
   const sheet = state.atendimentosSheet[unidade];
@@ -1615,14 +1661,15 @@ async function carregarAtendimentosSheet(unidade){
   sheet.carregando = true; sheet.erro='';
   renderAll();
   try{
-    const separador = url.includes('?') ? '&' : '?';
-    const resp = await fetch(url + separador + 'cachebust=' + Date.now());
-    if(!resp.ok) throw new Error('HTTP ' + resp.status);
-    const text = await resp.text();
-    const {headers, rows} = parseCSVText(text);
+    const {headers, rows} = await buscarCSVPublicado_(url);
     if(!headers.length) throw new Error('A planilha publicada voltou vazia ou em formato inválido.');
+    const historico = await carregarHistoricoAtendimentos_(unidade);
+    const mesesHistorico = new Set(historico.map(h=>h.mes));
+    const linhasAtuais = mesesHistorico.size
+      ? rows.filter(l=>{ const c=dataCompetenciaProdutividade_(l, headers); return !c || !mesesHistorico.has(monthKey(c)); })
+      : rows;
     sheet.headers = headers;
-    sheet.linhas = rows;
+    sheet.linhas = historico.reduce((acc,h)=>acc.concat(h.linhas), linhasAtuais);
     sheet.atualizadoEm = new Date();
   }catch(err){
     sheet.erro = err.message || 'Falha ao buscar a planilha.';
