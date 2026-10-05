@@ -219,6 +219,24 @@ const ATENDIMENTOS_SHEET_HISTORICO = {
     {mes:'2026-09', url:'https://docs.google.com/spreadsheets/d/e/2PACX-1vStvEWf880AMPZDMlZpuOjMz3f3UQD5NrnV9jw2LP7GcdaiqgAUw_E1z2GNXh7Gx0wmRGmtVmZaXPmI/pub?gid=136073013&single=true&output=csv'}
   ]
 };
+/* Grafias diferentes do MESMO técnico na planilha do Auvo, por unidade (o
+   cadastro no Auvo muda de mês pra mês: em set/2026 parte das linhas de
+   Brasília saiu como "Victor"/"Matheus", parte com o nome completo). Todos os
+   nomes de um grupo contam como uma pessoa só; vale apenas naquela unidade. */
+const NOMES_AUVO_EQUIVALENTES = {
+  GYN: [],
+  BSB: [
+    ['Victor', 'Victor Almeida Pereira'],
+    ['Matheus', 'Matheus Milhomem Ataides']
+  ]
+};
+/* Chave de comparação de um nome do Auvo numa unidade: o nome normalizado,
+   ou o primeiro nome do grupo de equivalentes ao qual ele pertence. */
+function chaveNomeAuvo_(nome, unidade){
+  const chave = normTxt(nome);
+  const grupo = (NOMES_AUVO_EQUIVALENTES[unidade] || []).find(g => g.some(n => normTxt(n) === chave));
+  return grupo ? normTxt(grupo[0]) : chave;
+}
 const ATENDIMENTOS_AUTO_REFRESH_MS = 5 * 60 * 1000; // 5 minutos
 function unidadeNome(key){ const u=UNIDADES.find(u=>u.key===key); return u?u.nome:key; }
 
@@ -321,7 +339,7 @@ function atendimentosDoMes(tecnicoId, mk){
       const temColunasDeData = localizarColunaExata_(sheet.headers, 'Data resposta') || localizarColunaExata_(sheet.headers, 'Data da tarefa');
       if (!colColaborador || !temColunasDeData) return;
       sheet.linhas.forEach(function(l){
-        if (normTxt(l[colColaborador]) !== chaveAlvo) return;
+        if (chaveNomeAuvo_(l[colColaborador], un.key) !== chaveNomeAuvo_(chaveAlvo, un.key)) return;
         const data = dataCompetenciaProdutividade_(l, sheet.headers);
         if (data && monthKey(data) === mk) resultado.push({ data: data, unidade: un.key });
       });
@@ -1595,7 +1613,7 @@ function dataCompetenciaProdutividade_(linha, headers){
 /* Conta atendimentos por técnico no mês, somando todos os tipos de
    questionário (a planilha publicada só precisa ter Colaborador + Data
    resposta/Data da tarefa — nenhum dado sensível). */
-function contarAtendimentosSheetPorTecnico_(linhas, headers, mesRef){
+function contarAtendimentosSheetPorTecnico_(linhas, headers, mesRef, unidade){
   const colColaborador = getColByKeywords(headers, ['colaborador','tecnico']);
   const temColunasDeData = localizarColunaExata_(headers, 'Data resposta') || localizarColunaExata_(headers, 'Data da tarefa');
   const contagem = {};
@@ -1606,7 +1624,7 @@ function contarAtendimentosSheetPorTecnico_(linhas, headers, mesRef){
     if(monthKey(competencia) !== mesRef) return;
     const nome = String(l[colColaborador]||'').trim();
     if(!nome) return;
-    const chave = normTxt(nome);
+    const chave = chaveNomeAuvo_(nome, unidade);
     if(!contagem[chave]) contagem[chave] = {nome, qtd:0};
     contagem[chave].qtd++;
   });
@@ -1766,7 +1784,7 @@ function renderAtendimentosContagemUnidade_(unidadeKey, mostrarTitulo){
     return;
   }
 
-  const contagem = contarAtendimentosSheetPorTecnico_(sheet.linhas, sheet.headers, state.mesRef);
+  const contagem = contarAtendimentosSheetPorTecnico_(sheet.linhas, sheet.headers, state.mesRef, unidadeKey);
 
   if(!isAdmin){
     const meus = atendimentosDoMes(state.session.id, state.mesRef);
@@ -1787,14 +1805,14 @@ function renderAtendimentosContagemUnidade_(unidadeKey, mostrarTitulo){
   const tecnicosDaUnidade = tecnicos().filter(u => (u.unidade||'GYN') === unidadeKey);
   const usadas = new Set();
   const linhasTecnicos = tecnicosDaUnidade.map(u=>{
-    const chave = normTxt(u.auvoNome || u.nome);
+    const chave = chaveNomeAuvo_(u.auvoNome || u.nome, unidadeKey);
     usadas.add(chave);
     return { nome: u.nome, qtd: contagem[chave] ? contagem[chave].qtd : 0 };
   });
   // Técnicos de OUTRA unidade que atenderam aqui: aparecem na tabela com a
   // unidade deles (esses atendimentos já somam no total deles no painel).
   tecnicos().filter(u => (u.unidade||'GYN') !== unidadeKey).forEach(u=>{
-    const chave = normTxt(u.auvoNome || u.nome);
+    const chave = chaveNomeAuvo_(u.auvoNome || u.nome, unidadeKey);
     if(!contagem[chave] || usadas.has(chave)) return;
     usadas.add(chave);
     linhasTecnicos.push({ nome: u.nome + ' (técnico de ' + unidadeNome(u.unidade||'GYN') + ')', qtd: contagem[chave].qtd });
