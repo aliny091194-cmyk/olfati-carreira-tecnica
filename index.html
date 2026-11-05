@@ -239,6 +239,19 @@ function chaveNomeAuvo_(nome, unidade){
   const grupo = (NOMES_AUVO_EQUIVALENTES[unidade] || []).find(g => g.some(n => normTxt(n) === chave));
   return grupo ? normTxt(grupo[0]) : chave;
 }
+/* Atendimentos lançados MANUALMENTE (fora da planilha do Auvo), por unidade e
+   mês. Somam no total do técnico em toda a produtividade (meta, bônus,
+   remuneração, promoção, ranking) e aparecem sinalizados na aba Atendimentos.
+   "nome" é o nome do técnico como na planilha do Auvo daquela unidade. */
+const AJUSTES_ATENDIMENTOS_MANUAIS = {
+  GYN: [
+    {mes:'2026-10', nome:'TIEGO ONOFRE DA SILVA', qtd:134, motivo:'lançamento manual'}
+  ],
+  BSB: []
+};
+function ajustesManuaisDoMes_(unidade, mes){
+  return (AJUSTES_ATENDIMENTOS_MANUAIS[unidade] || []).filter(a => a.mes === mes);
+}
 const ATENDIMENTOS_AUTO_REFRESH_MS = 5 * 60 * 1000; // 5 minutos
 function unidadeNome(key){ const u=UNIDADES.find(u=>u.key===key); return u?u.nome:key; }
 
@@ -344,6 +357,12 @@ function atendimentosDoMes(tecnicoId, mk){
         if (chaveNomeAuvo_(l[colColaborador], un.key) !== chaveNomeAuvo_(chaveAlvo, un.key)) return;
         const data = dataCompetenciaProdutividade_(l, sheet.headers);
         if (data && monthKey(data) === mk) resultado.push({ data: data, unidade: un.key });
+      });
+    });
+    UNIDADES.forEach(function(un){
+      ajustesManuaisDoMes_(un.key, mk).forEach(function(a){
+        if (chaveNomeAuvo_(a.nome, un.key) !== chaveNomeAuvo_(chaveAlvo, un.key)) return;
+        for (let i = 0; i < a.qtd; i++) resultado.push({ data: null, unidade: un.key, manual: true });
       });
     });
     return resultado;
@@ -1535,7 +1554,7 @@ function renderTecDash(main){
   // gráfico diário
   const dim = daysInMonth(mk);
   const porDia = Array(dim).fill(0);
-  atendimentosDoMes(u.id, mk).forEach(a=>{ const day=parseInt(a.data.slice(8,10),10); if(day>=1&&day<=dim) porDia[day-1]++; });
+  atendimentosDoMes(u.id, mk).forEach(a=>{ if(!a.data) return; const day=parseInt(a.data.slice(8,10),10); if(day>=1&&day<=dim) porDia[day-1]++; });
   safeChart('diario', 'chartDiario', {
     type:'bar',
     data:{labels:Array.from({length:dim},(_,i)=>i+1), datasets:[{label:'Atendimentos', data:porDia, backgroundColor:CATEGORICAL[0], borderRadius:4, maxBarThickness:18}]},
@@ -1629,6 +1648,11 @@ function contarAtendimentosSheetPorTecnico_(linhas, headers, mesRef, unidade){
     const chave = chaveNomeAuvo_(nome, unidade);
     if(!contagem[chave]) contagem[chave] = {nome, qtd:0};
     contagem[chave].qtd++;
+  });
+  ajustesManuaisDoMes_(unidade, mesRef).forEach(a=>{
+    const chave = chaveNomeAuvo_(a.nome, unidade);
+    if(!contagem[chave]) contagem[chave] = {nome:a.nome, qtd:0};
+    contagem[chave].qtd += a.qtd;
   });
   return contagem;
 }
@@ -1790,11 +1814,12 @@ function renderAtendimentosContagemUnidade_(unidadeKey, mostrarTitulo){
 
   if(!isAdmin){
     const meus = atendimentosDoMes(state.session.id, state.mesRef);
-    const foraDaUnidade = meus.filter(a => a.unidade && a.unidade !== unidadeKey).length;
+    const manuais = meus.filter(a => a.manual).length;
+    const foraDaUnidade = meus.filter(a => !a.manual && a.unidade && a.unidade !== unidadeKey).length;
     wrap.innerHTML = cabecalho + `<div class="grid grid-4">
       <div class="card"><h3>Atendimentos no mês (Auvo)</h3>
         <div class="stat">${meus.length}</div>
-        <div class="stat-sub">${fmtMonthLabel(state.mesRef)} — todos os tipos de atendimento${foraDaUnidade ? ` (inclui ${foraDaUnidade} em outra unidade)` : ''}</div>
+        <div class="stat-sub">${fmtMonthLabel(state.mesRef)} — todos os tipos de atendimento${foraDaUnidade ? ` (inclui ${foraDaUnidade} em outra unidade)` : ''}${manuais ? ` (inclui ${manuais} lançados manualmente)` : ''}</div>
       </div>
     </div>`;
     return;
@@ -1831,6 +1856,7 @@ function renderAtendimentosContagemUnidade_(unidadeKey, mostrarTitulo){
     <tbody>${linhasTecnicos.length ? linhasTecnicos.map(l=>`<tr><td>${l.nome}</td><td class="num">${l.qtd}</td></tr>`).join('')
       : `<tr><td colspan="2" class="empty-state">Nenhum técnico cadastrado nesta unidade.</td></tr>`}</tbody>
   </table></div>
+  ${ajustesManuaisDoMes_(unidadeKey, state.mesRef).length ? `<p class="small" style="margin-top:8px;color:var(--muted);">Inclui ajustes manuais (fora da planilha do Auvo): ${ajustesManuaisDoMes_(unidadeKey, state.mesRef).map(a=>`${a.nome} +${a.qtd} (${a.motivo})`).join('; ')}.</p>` : ''}
   ${naoVinculados.length ? `
   <div class="card table-wrap" style="margin-top:12px;">
     <h3 style="margin:0 0 8px;font-size:13px;text-transform:uppercase;color:var(--text-secondary);">Nomes na planilha sem técnico vinculado</h3>
